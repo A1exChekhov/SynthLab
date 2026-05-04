@@ -3,12 +3,17 @@
 import { useState, useEffect } from "react";
 import {
   playFrequency, stopFrequency, isAudioSupported, PRESETS,
-  startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset
+  startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset,
+  SYSTEM_CATEGORIES, clearAudioCache
 } from "./frequency-synth";
 import type { SynthPreset, Harmonic, NoiseBurst, ReverbConfig } from "./frequency-synth";
 
 const STORAGE_KEY = "synth_custom_presets";
-const DEFAULT_PRESET_KEYS = new Set(Object.keys(PRESETS));
+const ORIGINAL_KEYS = [
+  "crystal_bowl", "tibetan_bowl", "bells", "dramyen", "drum", 
+  "monastery", "dungchen", "synthesizer", "lingm", "gong", "tibetan_bowl_low"
+];
+const DEFAULT_PRESET_KEYS = new Set(ORIGINAL_KEYS);
 
 function loadCustomPresets(): Record<string, SynthPreset> {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); }
@@ -21,7 +26,25 @@ function saveCustomPresets(p: Record<string, SynthPreset>) {
 export default function SynthEditorPanel() {
   const [customPresets, setCustomPresets] = useState<Record<string, SynthPreset>>(loadCustomPresets);
   const allPresets = { ...PRESETS, ...customPresets };
+  
+  const [activeGlobalTab, setActiveGlobalTab] = useState<"default" | "custom" | "systems">("default");
+  const [activeSystemId, setActiveSystemId] = useState<string>("solfeggio");
+
   const presetKeys = Object.keys(allPresets);
+  const filteredPresetKeys = presetKeys.filter(key => {
+    if (activeGlobalTab === "default") return DEFAULT_PRESET_KEYS.has(key);
+    if (activeGlobalTab === "custom") return Object.prototype.hasOwnProperty.call(customPresets, key);
+    if (activeGlobalTab === "systems") {
+      const sysId = allPresets[key].systemId || "uncategorized";
+      return sysId === activeSystemId;
+    }
+    return true;
+  });
+
+  const customGroups = Array.from(new Set(
+    Object.keys(customPresets)
+      .map(k => customPresets[k].groupId || "Без группы")
+  )).sort();
 
   const [activePresetKey, setActivePresetKey] = useState<string>(presetKeys[0] || "");
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
@@ -40,6 +63,17 @@ export default function SynthEditorPanel() {
 
   // When switching preset, sync testHz from preset.baseHz
   const [editedPreset, setEditedPreset] = useState<SynthPreset | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>("");
+
+  const toggleGroup = (group: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const p = allPresets[activePresetKey];
@@ -97,8 +131,17 @@ export default function SynthEditorPanel() {
     if (!editedPreset) return;
     const name = prompt("Название нового пресета:", editedPreset.name ?? activePresetKey + "_copy");
     if (!name) return;
-    const key = name.toLowerCase().replace(/\s+/g, "_");
-    const updated = { ...customPresets, [key]: { ...editedPreset, name } };
+    
+    const groupMsg = customGroups.length > 0 
+      ? `Назовите папку (группу) для сохранения.\nВаши текущие папки: ${customGroups.join(", ")}`
+      : "Назовите новую папку (группу) для сохранения:";
+    
+    const group = prompt(groupMsg, editedPreset.groupId || "");
+    if (group === null) return;
+
+    const key = name.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now().toString().slice(-4);
+    const newPreset = { ...editedPreset, name, groupId: group.trim() || undefined };
+    const updated = { ...customPresets, [key]: newPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
     setActivePresetKey(key);
@@ -126,10 +169,54 @@ export default function SynthEditorPanel() {
     if (activePresetKey === key) setActivePresetKey(newKey);
   };
 
+  const updateCustomPreset = () => {
+    if (!editedPreset) return;
+    let finalPreset = { ...editedPreset };
+    
+    // For system presets, always preserve the original frequency when updating/overriding
+    const systemOrig = PRESETS[activePresetKey];
+    if (systemOrig && systemOrig.baseHz) {
+      finalPreset.baseHz = systemOrig.baseHz;
+    }
+
+    const updated = { ...customPresets, [activePresetKey]: finalPreset };
+    setCustomPresets(updated);
+    saveCustomPresets(updated);
+  };
+
+  const applyTemplate = (templateKey: string) => {
+    if (!editedPreset || !templateKey) return;
+    const template = PRESETS[templateKey];
+    if (!template) return;
+    
+    // Apply structural settings but keep identity
+    const newPreset = {
+      ...editedPreset,
+      waveform: template.waveform,
+      harmonics: JSON.parse(JSON.stringify(template.harmonics)),
+      auxTones: template.auxTones ? JSON.parse(JSON.stringify(template.auxTones)) : undefined,
+      attackSec: template.attackSec,
+      decaySec: template.decaySec,
+      sustainRatio: template.sustainRatio,
+      releaseSec: template.releaseSec,
+      masterVolume: template.masterVolume ?? 1.0,
+      highpassHz: template.highpassHz ?? undefined,
+      lowpassHz: template.lowpassHz ?? undefined,
+      stereoSpread: template.stereoSpread ?? 0,
+      reverb: template.reverb ? JSON.parse(JSON.stringify(template.reverb)) : undefined,
+      noiseBurst: template.noiseBurst ? JSON.parse(JSON.stringify(template.noiseBurst)) : undefined,
+      repeat: template.repeat ? JSON.parse(JSON.stringify(template.repeat)) : undefined,
+    };
+    setEditedPreset(newPreset);
+    triggerRestart(newPreset);
+    setSelectedTemplateKey(templateKey);
+  };
+
 
   const handlePlay = () => {
     if (!editedPreset) return;
     if (editedPreset.repeat?.enabled) {
+      startSequence("__test_seq__", editedPreset, testHz);
       setIsAutoPlaying(true);
       return;
     }
@@ -158,6 +245,7 @@ export default function SynthEditorPanel() {
   };
 
   const handleStop = () => {
+    if (isAutoPlaying) stopSequence("__test_seq__");
     setIsAutoPlaying(false);
     stopFrequency();
     setIsPlaying(false);
@@ -174,6 +262,8 @@ export default function SynthEditorPanel() {
           preset: undefined
         });
       }, 50);
+    } else if (isAutoPlaying) {
+      updateSequencePreset("__test_seq__", newPreset, testHz);
     }
   };
 
@@ -295,6 +385,10 @@ export default function SynthEditorPanel() {
 
     const code = `
   ${activePresetKey}: {
+    name: "${cleanPreset.name || activePresetKey}",
+    ${cleanPreset.baseHz ? `baseHz: ${cleanPreset.baseHz},` : ""}
+    ${cleanPreset.systemId ? `systemId: "${cleanPreset.systemId}",` : ""}
+    ${cleanPreset.groupId ? `groupId: "${cleanPreset.groupId}",` : ""}
     waveform: "${cleanPreset.waveform}",
     harmonics: ${JSON.stringify(cleanPreset.harmonics, null, 6).replace(/"([^"]+)":/g, '$1:')},
     ${cleanPreset.auxTones && cleanPreset.auxTones.length > 0 ? `auxTones: ${JSON.stringify(cleanPreset.auxTones, null, 6).replace(/"([^"]+)":/g, '$1:')},` : ""}
@@ -375,6 +469,87 @@ export default function SynthEditorPanel() {
     borderRadius: "6px"
   };
 
+  const renderPresetCard = (key: string) => {
+    const preset = allPresets[key];
+    const isActive = activePresetKey === key;
+    const isPlaying = playingIds.has(key);
+    const isUserPreset = Object.prototype.hasOwnProperty.call(customPresets, key);
+    const vol = volumes[key] ?? 1.0;
+    return (
+      <div key={key} style={{
+        ...(isActive ? cardActiveStyle : cardInactiveStyle),
+        ...(isPlaying ? { borderColor: "#28a745", boxShadow: "0 0 0 2px rgba(40,167,69,0.2)" } : {}),
+        borderRadius: "6px", padding: "8px 10px", display: "flex", flexDirection: "column", gap: "4px",
+        transition: "all 0.2s ease", position: "relative"
+      }}>
+        {/* Name row */}
+        {renaming === key ? (
+          <div style={{ display: "flex", gap: "4px" }}>
+            <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") renameCustom(key); if (e.key === "Escape") setRenaming(null); }}
+              style={{ ...inputStyle, flex: 1, fontSize: "12px" }} />
+            <button onClick={() => renameCustom(key)} style={{ background: "#0366d6", color: "#fff", border: "none", borderRadius: "3px", cursor: "pointer", fontSize: "11px", padding: "0 6px" }}>✓</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "4px" }}>
+            <span onClick={() => setActivePresetKey(key)} style={{ fontSize: "13px", fontWeight: 500, color: isActive ? "#0366d6" : "#24292e", cursor: "pointer", lineHeight: 1.3, flex: 1 }}>
+              {preset.name ?? key}
+            </span>
+            {isUserPreset && activeGlobalTab === "custom" && (
+              <div style={{ display: "flex", gap: "2px", flexShrink: 0 }}>
+                <select 
+                  value={preset.groupId || ""}
+                  onChange={e => {
+                    let val = e.target.value;
+                    if (val === "__new__") {
+                      val = prompt("Название новой папки/группы:") || "";
+                      if (!val) return;
+                    }
+                    const updated = { ...customPresets, [key]: { ...preset, groupId: val } };
+                    setCustomPresets(updated);
+                    saveCustomPresets(updated);
+                  }}
+                  style={{ ...selectStyle, width: "60px", fontSize: "9px", height: "18px" }}
+                >
+                  <option value="">Без гр.</option>
+                  {customGroups.filter(g => g !== "Без группы").map(g => <option key={g} value={g}>{g}</option>)}
+                  <option value="__new__">+ Нов...</option>
+                </select>
+                <button onClick={() => { setRenaming(key); setRenameVal(preset.name ?? key); }} title="Переименовать"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#586069", fontSize: "12px", padding: "0 2px" }}>✏️</button>
+                <button onClick={() => { if (confirm("Удалить?")) deleteCustom(key); }} title="Удалить"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#d73a49", fontSize: "12px", padding: "0 2px" }}>×</button>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Hz + editing badge */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span onClick={() => setActivePresetKey(key)} style={{ fontSize: "11px", color: "#586069", cursor: "pointer" }}>
+            {preset.baseHz ? `${preset.baseHz} Hz` : `${preset.harmonics?.length ?? 0} слоев`}
+          </span>
+          {isActive && activeGlobalTab === "custom" && (
+            <span style={{ fontSize: "9px", background: "#0366d6", color: "#fff", padding: "1px 5px", borderRadius: "3px", fontWeight: 600, letterSpacing: "0.3px" }}>✎ РЕД</span>
+          )}
+        </div>
+        {/* Volume */}
+        <input type="range" min="0" max="1" step="0.05" value={vol}
+          onChange={e => setVolume(key, Number(e.target.value))}
+          style={{ width: "100%", height: "3px", accentColor: isPlaying ? "#28a745" : "#0366d6", cursor: "pointer" }} />
+        {/* Play/Stop */}
+        <button onClick={() => toggleCard(key)} style={{
+          background: isPlaying ? "#28a745" : "transparent",
+          border: `1px solid ${isPlaying ? "#28a745" : "#d1d5da"}`,
+          color: isPlaying ? "#fff" : "#24292e",
+          borderRadius: "4px", padding: "2px 0", cursor: "pointer", fontSize: "11px",
+          fontWeight: 500, transition: "all 0.15s"
+        }}>
+          {isPlaying ? "⏹ Стоп" : "▶ Играть"}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div style={{ padding: "16px", background: "#f8f9fa", color: "#24292e", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif", minHeight: "100vh" }}>
       <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
@@ -388,11 +563,12 @@ export default function SynthEditorPanel() {
             <div style={{ color: "#586069", fontSize: "12px" }}>Настройка параметров движка frequency-synth.ts</div>
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
-            {playingIds.size > 0 && (
-              <button onClick={stopAll} style={{ background: "#d73a49", color: "#fff", border: "1px solid #d73a49", padding: "6px 14px", borderRadius: "4px", cursor: "pointer", fontWeight: 500, fontSize: "13px", transition: "all 0.2s" }}>
-                ⏹ Остановить всё
-              </button>
-            )}
+            <button onClick={() => { clearAudioCache(); alert("Кэш звука очищен!"); }} style={{ background: "transparent", border: "1px solid #d1d5da", color: "#586069", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "12px", transition: "all 0.2s" }}>
+              🧹 Очистить кэш
+            </button>
+            <button onClick={stopAll} style={{ background: "#d73a49", color: "#fff", border: "1px solid #d73a49", padding: "6px 14px", borderRadius: "4px", cursor: "pointer", fontWeight: 500, fontSize: "13px", transition: "all 0.2s" }}>
+              ⏹ Остановить всё
+            </button>
              <button
               onClick={(isPlaying || isAutoPlaying) ? handleStop : handlePlay}
               style={{
@@ -404,8 +580,13 @@ export default function SynthEditorPanel() {
                 boxShadow: isPlaying ? "none" : "0 1px 3px rgba(3,102,214,0.3)"
               }}
             >
-              { (isPlaying || isAutoPlaying) ? "Остановить" : (editedPreset?.repeat?.enabled ? "Тест удара" : "Слушать пресет") }
+            { (isPlaying || isAutoPlaying) ? "Остановить" : (editedPreset?.repeat?.enabled ? "Тест удара" : "Слушать пресет") }
             </button>
+            {!DEFAULT_PRESET_KEYS.has(activePresetKey) && (
+              <button onClick={updateCustomPreset} style={{ background: "#28a745", color: "#fff", border: "1px solid #28a745", padding: "6px 14px", borderRadius: "4px", cursor: "pointer", fontWeight: 500, fontSize: "13px", transition: "all 0.2s" }}>
+                Обновить
+              </button>
+            )}
             <button onClick={saveAsCustom} style={{ background: "transparent", border: "1px solid #28a745", color: "#28a745", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "13px", transition: "all 0.2s" }}>
               Сохранить
             </button>
@@ -416,83 +597,218 @@ export default function SynthEditorPanel() {
 
         </div>
 
+        {/* Global Tabs */}
+        <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid #e1e4e8", paddingBottom: "8px" }}>
+          <button 
+            onClick={() => setActiveGlobalTab("default")}
+            style={{ padding: "8px 16px", background: activeGlobalTab === "default" ? "#0366d6" : "transparent", color: activeGlobalTab === "default" ? "#fff" : "#586069", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 500, transition: "all 0.2s" }}
+          >
+            Дефолт пресеты
+          </button>
+          <button 
+            onClick={() => setActiveGlobalTab("custom")}
+            style={{ padding: "8px 16px", background: activeGlobalTab === "custom" ? "#28a745" : "transparent", color: activeGlobalTab === "custom" ? "#fff" : "#586069", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 500, transition: "all 0.2s" }}
+          >
+            Мои пресеты
+          </button>
+          <button 
+            onClick={() => setActiveGlobalTab("systems")}
+            style={{ padding: "8px 16px", background: activeGlobalTab === "systems" ? "#0366d6" : "transparent", color: activeGlobalTab === "systems" ? "#fff" : "#586069", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 500, transition: "all 0.2s" }}
+          >
+            Системы частот
+          </button>
+        </div>
+
+        {/* System Categories List (only visible in "systems" tab) */}
+        {activeGlobalTab === "systems" && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "24px" }}>
+            {SYSTEM_CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setActiveSystemId(cat.id)}
+                style={{
+                  padding: "6px 12px",
+                  background: activeSystemId === cat.id ? "#e1e4e8" : "#ffffff",
+                  border: "1px solid #d1d5da",
+                  borderRadius: "20px",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                  color: "#24292e",
+                  fontWeight: activeSystemId === cat.id ? 600 : 400
+                }}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Instrument Grid */}
         <div style={{ marginBottom: "24px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "8px" }}>
-            {presetKeys.map((key) => {
-              const preset = allPresets[key];
-              const isActive = activePresetKey === key;
-              const isPlaying = playingIds.has(key);
-              const isCustom = !DEFAULT_PRESET_KEYS.has(key);
-              const vol = volumes[key] ?? 1.0;
-              return (
-                <div key={key} style={{
-                  ...(isActive ? cardActiveStyle : cardInactiveStyle),
-                  ...(isPlaying ? { borderColor: "#28a745", boxShadow: "0 0 0 2px rgba(40,167,69,0.2)" } : {}),
-                  borderRadius: "6px", padding: "8px 10px", display: "flex", flexDirection: "column", gap: "4px",
-                  transition: "all 0.2s ease", position: "relative"
-                }}>
-                  {/* Name row */}
-                  {renaming === key ? (
-                    <div style={{ display: "flex", gap: "4px" }}>
-                      <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") renameCustom(key); if (e.key === "Escape") setRenaming(null); }}
-                        style={{ ...inputStyle, flex: 1, fontSize: "12px" }} />
-                      <button onClick={() => renameCustom(key)} style={{ background: "#0366d6", color: "#fff", border: "none", borderRadius: "3px", cursor: "pointer", fontSize: "11px", padding: "0 6px" }}>✓</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "4px" }}>
-                      <span onClick={() => setActivePresetKey(key)} style={{ fontSize: "13px", fontWeight: 500, color: isActive ? "#0366d6" : "#24292e", cursor: "pointer", lineHeight: 1.3, flex: 1 }}>
-                        {preset.name ?? key}
-                      </span>
-                      {isCustom && (
-                        <div style={{ display: "flex", gap: "2px", flexShrink: 0 }}>
-                          <button onClick={() => { setRenaming(key); setRenameVal(preset.name ?? key); }} title="Переименовать"
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "#586069", fontSize: "12px", padding: "0 2px" }}>✏️</button>
-                          <button onClick={() => { if (confirm("Удалить?")) deleteCustom(key); }} title="Удалить"
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "#d73a49", fontSize: "12px", padding: "0 2px" }}>×</button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* Hz + editing badge */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span onClick={() => setActivePresetKey(key)} style={{ fontSize: "11px", color: "#586069", cursor: "pointer" }}>
-                      {preset.baseHz ? `${preset.baseHz} Hz` : `${preset.harmonics?.length ?? 0} слоев`}
-                    </span>
-                    {isActive && (
-                      <span style={{ fontSize: "9px", background: "#0366d6", color: "#fff", padding: "1px 5px", borderRadius: "3px", fontWeight: 600, letterSpacing: "0.3px" }}>✎ РЕД</span>
-                    )}
-                  </div>
-                  {/* Volume */}
-                  <input type="range" min="0" max="1" step="0.05" value={vol}
-                    onChange={e => setVolume(key, Number(e.target.value))}
-                    style={{ width: "100%", height: "3px", accentColor: isPlaying ? "#28a745" : "#0366d6", cursor: "pointer" }} />
-                  {/* Play/Stop */}
-                  <button onClick={() => toggleCard(key)} style={{
-                    background: isPlaying ? "#28a745" : "transparent",
-                    border: `1px solid ${isPlaying ? "#28a745" : "#d1d5da"}`,
-                    color: isPlaying ? "#fff" : "#24292e",
-                    borderRadius: "4px", padding: "2px 0", cursor: "pointer", fontSize: "11px",
-                    fontWeight: 500, transition: "all 0.15s"
-                  }}>
-                    {isPlaying ? "⏹ Стоп" : "▶ Играть"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          {activeGlobalTab === "custom" ? (
+             Object.keys(customPresets).length === 0 ? (
+               <div style={{ color: "#586069", fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>У вас пока нет сохраненных пресетов. Сохраните любой пресет, чтобы он появился здесь.</div>
+             ) : (() => {
+               const buildGroupTree = (keys: string[]) => {
+                 const root: any = { presets: [], subgroups: {} };
+                 keys.forEach(key => {
+                   const pathStr = customPresets[key].groupId || "Без группы";
+                   const parts = pathStr.split("/").map(p => p.trim()).filter(Boolean);
+                   let current = root;
+                   parts.forEach(part => {
+                     if (!current.subgroups[part]) {
+                       current.subgroups[part] = { presets: [], subgroups: {} };
+                     }
+                     current = current.subgroups[part];
+                   });
+                   current.presets.push(key);
+                 });
+                 return root;
+               };
+
+               const renderNode = (name: string, node: any, path: string = "", depth: number = 0) => {
+                 const fullPath = path ? `${path}/${name}` : name;
+                 const isCollapsed = collapsedGroups.has(fullPath);
+                 const hasSub = Object.keys(node.subgroups).length > 0;
+                 const hasPresets = node.presets.length > 0;
+                 
+                 return (
+                   <div key={fullPath} style={{ marginLeft: depth > 0 ? "16px" : "0", marginBottom: "4px" }}>
+                     <div 
+                       onClick={() => toggleGroup(fullPath)}
+                       style={{ 
+                         display: "flex", alignItems: "center", gap: "8px", cursor: "pointer",
+                         padding: "4px 10px", background: isCollapsed ? "#f6f8fa" : "#f1f8ff",
+                         border: "1px solid", borderColor: isCollapsed ? "#e1e4e8" : "#c8e1ff",
+                         borderRadius: "4px", transition: "all 0.15s"
+                       }}
+                     >
+                       <span style={{ fontSize: "9px", color: isCollapsed ? "#6a737d" : "#0366d6", width: "10px" }}>
+                         {isCollapsed ? "▶" : "▼"}
+                       </span>
+                       <span style={{ fontSize: "13px", fontWeight: 600, color: "#24292e" }}>
+                         📁 {name}
+                       </span>
+                       <span style={{ fontSize: "11px", color: "#6a737d", marginLeft: "auto" }}>
+                         {node.presets.length + Object.values(node.subgroups).reduce((acc: number, n: any) => acc + n.presets.length, 0)} прес.
+                       </span>
+                     </div>
+                     
+                     {!isCollapsed && (
+                       <div style={{ borderLeft: "1px solid #e1e4e8", paddingLeft: "8px", marginTop: "4px" }}>
+                         {Object.keys(node.subgroups).sort().map(sub => renderNode(sub, node.subgroups[sub], fullPath, depth + 1))}
+                         {hasPresets && (
+                           <div style={{ 
+                             display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", 
+                             gap: "8px", paddingTop: "8px", paddingBottom: "8px"
+                           }}>
+                             {node.presets.map(key => renderPresetCard(key))}
+                           </div>
+                         )}
+                       </div>
+                     )}
+                   </div>
+                 );
+               };
+
+               const tree = buildGroupTree(Object.keys(customPresets));
+               return Object.keys(tree.subgroups).sort().map(name => renderNode(name, tree.subgroups[name]));
+             })()
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "8px" }}>
+              {filteredPresetKeys.map(key => renderPresetCard(key))}
+            </div>
+          )}
         </div>
 
         {editedPreset && (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {/* Editor identity bar */}
-            <div style={{ background: "#f1f8ff", border: "1px solid #c8e1ff", borderRadius: "6px", padding: "8px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ background: "#f1f8ff", border: "1px solid #c8e1ff", borderRadius: "6px", padding: "8px 14px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
               <span style={{ fontSize: "11px", color: "#586069", fontWeight: 500 }}>РЕДАКТИРОВАНИЕ:</span>
               <span style={{ fontSize: "14px", fontWeight: 600, color: "#0366d6" }}>{editedPreset.name ?? activePresetKey}</span>
-              {editedPreset.baseHz && <span style={{ fontSize: "12px", color: "#586069" }}>{editedPreset.baseHz} Hz</span>}
+              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ fontSize: "11px", color: "#586069" }}>База:</span>
+                <input 
+                  type="number" 
+                  step="0.1" 
+                  value={editedPreset.baseHz || ""} 
+                  onChange={e => {
+                    const val = Number(e.target.value);
+                    updateGlobal("baseHz", val);
+                    setTestHz(val); // Sync test frequency too
+                  }} 
+                  style={{ ...inputStyle, width: "60px", height: "20px" }} 
+                />
+                <span style={{ fontSize: "12px", color: "#586069" }}>Hz</span>
+              </div>
+              
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "11px", color: "#586069" }}>Взять образец (Шаблон):</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+                    <select 
+                      value={selectedTemplateKey}
+                      onChange={e => applyTemplate(e.target.value)}
+                      style={{ ...selectStyle, width: "auto", minWidth: "150px", borderColor: "#0366d6" }}
+                    >
+                      <option value="">-- Выберите образец --</option>
+                      {ORIGINAL_KEYS.map(key => (
+                        <option key={key} value={key}>{PRESETS[key].name}</option>
+                      ))}
+                    </select>
+                    {selectedTemplateKey && (
+                      <button 
+                        onClick={() => applyTemplate(selectedTemplateKey)}
+                        title="Переприменить/Обновить из файла"
+                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", padding: "0 4px" }}
+                      >
+                        🔄
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={(isPlaying || isAutoPlaying) ? handleStop : handlePlay}
+                  style={{ 
+                    background: (isPlaying || isAutoPlaying) ? "#d73a49" : "#28a745", 
+                    color: "#fff", border: "none", padding: "6px 16px", 
+                    borderRadius: "4px", cursor: "pointer", fontWeight: 600, fontSize: "13px",
+                    display: "flex", alignItems: "center", gap: "6px", boxShadow: "0 2px 4px rgba(40,167,69,0.3)"
+                  }}
+                >
+                  <span style={{ fontSize: "16px" }}>{(isPlaying || isAutoPlaying) ? "⏹" : "▶"}</span> 
+                  {(isPlaying || isAutoPlaying) ? "Остановить" : "Прослушать"}
+                </button>
+
+                <button 
+                  onClick={updateCustomPreset} 
+                  style={{ 
+                    background: "#28a745", color: "#fff", border: "none", padding: "6px 14px", 
+                    borderRadius: "4px", cursor: "pointer", fontWeight: 600, fontSize: "13px",
+                    boxShadow: "0 2px 4px rgba(40,167,69,0.2)"
+                  }}
+                >
+                  Обновить
+                </button>
+                
+                <button 
+                  onClick={saveAsCustom} 
+                  style={{ 
+                    background: "transparent", border: "1px solid #28a745", color: "#28a745", 
+                    padding: "6px 16px", borderRadius: "4px", cursor: "pointer", 
+                    fontSize: "13px", fontWeight: 600
+                  }}
+                >
+                  Сохранить
+                </button>
+              </div>
+
               {playingIds.has(activePresetKey) && (
-                <span style={{ fontSize: "11px", background: "#28a745", color: "#fff", padding: "2px 8px", borderRadius: "4px", marginLeft: "auto" }}>● ИГРАЕТ — изменения применяются онлайн</span>
+                <span style={{ fontSize: "11px", background: "#e1f5fe", color: "#0288d1", padding: "2px 8px", borderRadius: "4px", border: "1px solid #b3e5fc" }}>
+                  ● Живой эфир
+                </span>
               )}
             </div>
 
@@ -554,6 +870,17 @@ export default function SynthEditorPanel() {
                       </label>
                       <label style={labelStyle}>Стерео-спред
                         <input type="number" step="0.1" placeholder="0" value={editedPreset.stereoSpread || ""} onChange={e => updateGlobal("stereoSpread", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
+                      </label>
+                   </div>
+                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", marginTop: "12px" }}>
+                      <label style={labelStyle}>Тип панорамы
+                        <select value={editedPreset.pannerType || "stereo"} onChange={e => updateGlobal("pannerType", e.target.value)} style={selectStyle}>
+                          <option value="stereo">Standard Stereo</option>
+                          <option value="3d">3D Spatial (HRTF)</option>
+                        </select>
+                      </label>
+                      <label style={labelStyle}>3D Вращение (Hz)
+                        <input type="number" step="0.01" placeholder="Выкл" value={editedPreset.spatialRotationHz || ""} onChange={e => updateGlobal("spatialRotationHz", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
                       </label>
                    </div>
                  </div>
@@ -684,21 +1011,24 @@ export default function SynthEditorPanel() {
                        <div style={{ color: "#0366d6", fontWeight: 600 }}>{(testHz * h.multiple).toFixed(1)}</div>
                      </div>
                     
-                    <label style={{...labelStyle, flex: 1}}>Mult<input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value)} style={inputStyle} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Gain<input type="number" step="0.05" value={h.gainRatio} onChange={e => updateHarmonic(i, "gainRatio", e.target.value)} style={inputStyle} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Atk(s)<input type="number" step="0.01" placeholder="Глоб" value={h.attackSec ?? ""} onChange={e => updateHarmonic(i, "attackSec", e.target.value)} style={inputStyle} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Dec(s)<input type="number" step="0.1" placeholder="Глоб" value={h.decaySec ?? ""} onChange={e => updateHarmonic(i, "decaySec", e.target.value)} style={inputStyle} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Sus<input type="number" step="0.1" placeholder="Глоб" value={h.sustainRatio ?? ""} onChange={e => updateHarmonic(i, "sustainRatio", e.target.value)} style={inputStyle} /></label>
-                    <div style={{...labelStyle, flex: 1.4}}>
+                    <label style={{...labelStyle, flex: 0.6}}>Mult<input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value)} style={inputStyle} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Gain<input type="number" step="0.05" value={h.gainRatio} onChange={e => updateHarmonic(i, "gainRatio", e.target.value)} style={inputStyle} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Atk(s)<input type="number" step="0.01" placeholder="Глоб" value={h.attackSec ?? ""} onChange={e => updateHarmonic(i, "attackSec", e.target.value)} style={inputStyle} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Dec(s)<input type="number" step="0.1" placeholder="Глоб" value={h.decaySec ?? ""} onChange={e => updateHarmonic(i, "decaySec", e.target.value)} style={inputStyle} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Sus<input type="number" step="0.1" placeholder="Глоб" value={h.sustainRatio ?? ""} onChange={e => updateHarmonic(i, "sustainRatio", e.target.value)} style={inputStyle} /></label>
+                    <div style={{...labelStyle, flex: 1.0}}>
                       <span>LFO Rate Hz</span>
                       <div style={{ display: "flex", gap: "2px" }}>
                         <input type="number" step="0.01" min="0" max="8" placeholder="Выкл" value={h.wobbleHz || ""} onChange={e => updateHarmonic(i, "wobbleHz", e.target.value)} style={{...inputStyle, flex: 1}} />
                         {[0.03,0.05,0.1,0.3,1].map(r => <button key={r} onClick={() => updateHarmonic(i, "wobbleHz", r)} style={{ background: h.wobbleHz === r ? "#0366d6" : "#f6f8fa", color: h.wobbleHz === r ? "#fff" : "#586069", border: "1px solid #d1d5da", borderRadius: "3px", fontSize: "9px", padding: "0 2px", cursor: "pointer", flexShrink: 0, height: "24px" }}>{r}</button>)}
                       </div>
                     </div>
-                    <label style={{...labelStyle, flex: 1}}>Depth ¢<input type="number" step="0.5" min="0" max="100" placeholder="3" value={h.wobbleDepthCents ?? ""} onChange={e => updateHarmonic(i, "wobbleDepthCents", e.target.value)} style={inputStyle} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Detune<input type="number" step="1" placeholder="Выкл" value={h.detuneCentsRange || ""} onChange={e => updateHarmonic(i, "detuneCentsRange", e.target.value)} style={inputStyle} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Pan<input type="number" step="0.1" placeholder="Авто" value={h.pan ?? ""} onChange={e => updateHarmonic(i, "pan", e.target.value)} style={inputStyle} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Depth ¢<input type="number" step="0.5" min="0" max="100" placeholder="3" value={h.wobbleDepthCents ?? ""} onChange={e => updateHarmonic(i, "wobbleDepthCents", e.target.value)} style={inputStyle} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Detune<input type="number" step="1" placeholder="Выкл" value={h.detuneCentsRange || ""} onChange={e => updateHarmonic(i, "detuneCentsRange", e.target.value)} style={inputStyle} /></label>
+                    <div style={{ display: "flex", flex: 1.2, gap: "2px" }}>
+                      <label style={{...labelStyle, flex: 1}}>Pan<input type="number" step="0.1" placeholder="Авто" value={h.pan ?? ""} onChange={e => updateHarmonic(i, "pan", e.target.value)} style={inputStyle} /></label>
+                      <label style={{...labelStyle, flex: 1}}>Bin(Hz)<input type="number" step="0.1" placeholder="0" value={h.binauralBeatHz || ""} onChange={e => updateHarmonic(i, "binauralBeatHz", e.target.value)} style={inputStyle} title="Бинауральные биения" /></label>
+                    </div>
                     
                     <button onClick={() => removeHarmonic(i)} style={{ background: "#ffffff", color: "#d73a49", border: "1px solid #e1e4e8", padding: "0", width: "24px", height: "24px", borderRadius: "4px", cursor: "pointer", flexShrink: 0, fontSize: "14px" }}>×</button>
                   </div>
@@ -728,21 +1058,30 @@ export default function SynthEditorPanel() {
                   <div key={i} style={{ display: "flex", gap: "8px", alignItems: "end", background: "#f0f8ff", padding: "6px 8px", borderRadius: "4px", border: "1px solid #c8e1ff" }}>
                     <div style={{ width: "20px", color: "#0366d6", paddingBottom: "4px", fontSize: "11px", fontWeight: 500 }}>A{i+1}</div>
                     
-                    <label style={{...labelStyle, flex: 1}}>Mult<input type="number" step="0.01" value={h.multiple} onChange={e => updateAuxTone(i, "multiple", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Gain<input type="number" step="0.05" value={h.gainRatio} onChange={e => updateAuxTone(i, "gainRatio", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Atk(s)<input type="number" step="0.01" placeholder="Глоб" value={h.attackSec ?? ""} onChange={e => updateAuxTone(i, "attackSec", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Dec(s)<input type="number" step="0.1" placeholder="Глоб" value={h.decaySec ?? ""} onChange={e => updateAuxTone(i, "decaySec", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Sus<input type="number" step="0.1" placeholder="Глоб" value={h.sustainRatio ?? ""} onChange={e => updateAuxTone(i, "sustainRatio", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <div style={{...labelStyle, flex: 1.4}}>
+                    <label style={{...labelStyle, flex: 0.8}}>
+                      Mult/Hz
+                      <div style={{ display: "flex", gap: "2px" }}>
+                        <input type="number" step="0.01" value={h.multiple} onChange={e => updateAuxTone(i, "multiple", e.target.value)} style={{...inputStyle, width: "24px", fontSize: "9px", padding: "0 2px", borderColor: "#c8e1ff"}} title="Множитель" />
+                        <input type="number" step="0.1" placeholder="Hz" value={h.absoluteHz || ""} onChange={e => updateAuxTone(i, "absoluteHz", e.target.value)} style={{...inputStyle, flex: 1, borderColor: "#c8e1ff"}} title="Прямая частота" />
+                      </div>
+                    </label>
+                    <label style={{...labelStyle, flex: 0.6}}>Gain<input type="number" step="0.05" value={h.gainRatio} onChange={e => updateAuxTone(i, "gainRatio", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Atk(s)<input type="number" step="0.01" placeholder="Глоб" value={h.attackSec ?? ""} onChange={e => updateAuxTone(i, "attackSec", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Dec(s)<input type="number" step="0.1" placeholder="Глоб" value={h.decaySec ?? ""} onChange={e => updateAuxTone(i, "decaySec", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Sus<input type="number" step="0.1" placeholder="Глоб" value={h.sustainRatio ?? ""} onChange={e => updateAuxTone(i, "sustainRatio", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <div style={{...labelStyle, flex: 1.0}}>
                       <span>LFO Rate Hz</span>
                       <div style={{ display: "flex", gap: "2px" }}>
                         <input type="number" step="0.01" min="0" max="8" placeholder="Выкл" value={h.wobbleHz || ""} onChange={e => updateAuxTone(i, "wobbleHz", e.target.value)} style={{...inputStyle, flex: 1, borderColor: "#c8e1ff"}} />
                         {[0.03,0.05,0.1,0.3,1].map(r => <button key={r} onClick={() => updateAuxTone(i, "wobbleHz", r)} style={{ background: h.wobbleHz === r ? "#0366d6" : "#f0f8ff", color: h.wobbleHz === r ? "#fff" : "#586069", border: "1px solid #c8e1ff", borderRadius: "3px", fontSize: "9px", padding: "0 2px", cursor: "pointer", flexShrink: 0, height: "24px" }}>{r}</button>)}
                       </div>
                     </div>
-                    <label style={{...labelStyle, flex: 1}}>Depth ¢<input type="number" step="0.5" min="0" max="100" placeholder="3" value={h.wobbleDepthCents ?? ""} onChange={e => updateAuxTone(i, "wobbleDepthCents", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Detune<input type="number" step="1" placeholder="Выкл" value={h.detuneCentsRange || ""} onChange={e => updateAuxTone(i, "detuneCentsRange", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
-                    <label style={{...labelStyle, flex: 1}}>Pan<input type="number" step="0.1" placeholder="Авто" value={h.pan ?? ""} onChange={e => updateAuxTone(i, "pan", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Depth ¢<input type="number" step="0.5" min="0" max="100" placeholder="3" value={h.wobbleDepthCents ?? ""} onChange={e => updateAuxTone(i, "wobbleDepthCents", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <label style={{...labelStyle, flex: 0.6}}>Detune<input type="number" step="1" placeholder="Выкл" value={h.detuneCentsRange || ""} onChange={e => updateAuxTone(i, "detuneCentsRange", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                    <div style={{ display: "flex", flex: 1.2, gap: "2px" }}>
+                      <label style={{...labelStyle, flex: 1}}>Pan<input type="number" step="0.1" placeholder="Авто" value={h.pan ?? ""} onChange={e => updateAuxTone(i, "pan", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} /></label>
+                      <label style={{...labelStyle, flex: 1}}>Bin(Hz)<input type="number" step="0.1" placeholder="0" value={h.binauralBeatHz || ""} onChange={e => updateAuxTone(i, "binauralBeatHz", e.target.value)} style={{...inputStyle, borderColor: "#c8e1ff"}} title="Бинауральные биения" /></label>
+                    </div>
                     
                     <button onClick={() => removeAuxTone(i)} style={{ background: "#ffffff", color: "#d73a49", border: "1px solid #c8e1ff", padding: "0", width: "24px", height: "24px", borderRadius: "4px", cursor: "pointer", flexShrink: 0, fontSize: "14px" }}>×</button>
                   </div>

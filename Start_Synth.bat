@@ -1,7 +1,10 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
+
+echo Остановка старого сервера на порту 9000 (если есть)...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr "LISTENING" ^| findstr ":9000"') do taskkill /f /pid %%a 2>nul
+
 echo Запуск сервера Синтезатора...
 cd /d "%~dp0synth-app"
 
-REM Запускаем Vite сервер и автоматически открываем браузер
 npm run dev -- --open

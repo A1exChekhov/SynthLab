@@ -41,6 +41,7 @@ export type Harmonic = {
   detuneCentsRange?: number;
   absoluteHz?: number;
   pan?: number;
+  binauralBeatHz?: number;
 };
 
 export type NoiseBurst = {
@@ -91,13 +92,1180 @@ export type SynthPreset = {
   sampleUrl?: string;
   sampleHz?: number;
   sampleLoop?: boolean;
+  systemId?: string;
+  groupId?: string;
+  pannerType?: "stereo" | "3d";
+  spatialRotationHz?: number;
 };
+
+export const SYSTEM_CATEGORIES = [
+  { id: "uncategorized", label: "Все пресеты / Без категории" },
+  { id: "solfeggio", label: "Частоты Сольфеджио (Solfeggio)" },
+  { id: "cosmic_octave", label: "Космическая Октава (Cosmic Octave)" },
+  { id: "chakra", label: "Музыкальные Шкалы Чакр" },
+  { id: "earth_space", label: "Физика Земли и Космоса" },
+  { id: "acoustic", label: "Акустические Инструменты" },
+  { id: "drone_rhythm", label: "Дроны и Ритмические паттерны" },
+  { id: "digital_binaural", label: "Цифровые, Бинауральные и Голос" },
+  { id: "errarium", label: "Errarium Resonance Matrix" }
+];
 
 // ── Preset Library ────────────────────────────────────────────────
 
 export const PRESETS: Record<string, SynthPreset> = {
+  solfeggio_174: {
+    name: "Освобождение от боли (174 Hz)",
+    systemId: "solfeggio",
+    baseHz: 174,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_285: {
+    name: "Восстановление тканей (285 Hz)",
+    systemId: "solfeggio",
+    baseHz: 285,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_396: {
+    name: "Освобождение от страха (396 Hz)",
+    systemId: "solfeggio",
+    baseHz: 396,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_417: {
+    name: "Трансформация (417 Hz)",
+    systemId: "solfeggio",
+    baseHz: 417,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_528: {
+    name: "Исцеление / ДНК (528 Hz)",
+    systemId: "solfeggio",
+    baseHz: 528,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_639: {
+    name: "Связь и отношения (639 Hz)",
+    systemId: "solfeggio",
+    baseHz: 639,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_741: {
+    name: "Очищение и выражение (741 Hz)",
+    systemId: "solfeggio",
+    baseHz: 741,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_852: {
+    name: "Духовный порядок (852 Hz)",
+    systemId: "solfeggio",
+    baseHz: 852,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  solfeggio_963: {
+    name: "Единство / Коронная (963 Hz)",
+    systemId: "solfeggio",
+    baseHz: 963,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_194_18: {
+    name: "Muladhara (Корневая) (194.18 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 194.18,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_210_42: {
+    name: "Svadhisthana (Сакральная) (210.42 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 210.42,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_126_22: {
+    name: "Manipura (Солн. сплетение) (126.22 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 126.22,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_136_1: {
+    name: "Anahata (Сердце / OM) (136.1 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_141_27: {
+    name: "Vishuddha (Горло) (141.27 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 141.27,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_221_23: {
+    name: "Ajna (Третий глаз) (221.23 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 221.23,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_172_06: {
+    name: "Sahasrara (Корона) (172.06 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 172.06,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_144_72: {
+    name: "Марс (144.72 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 144.72,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_183_58: {
+    name: "Юпитер (183.58 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 183.58,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_147_85: {
+    name: "Сатурн (147.85 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 147.85,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_207_36: {
+    name: "Уран (207.36 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 207.36,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_211_44: {
+    name: "Нептун (211.44 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 211.44,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  cosmic_octave_140_64: {
+    name: "Плутон (140.64 Hz)",
+    systemId: "cosmic_octave",
+    baseHz: 140.64,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_261_63: {
+    name: "C4 (261.63 Hz)",
+    systemId: "chakra",
+    baseHz: 261.63,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_293_66: {
+    name: "D4 (293.66 Hz)",
+    systemId: "chakra",
+    baseHz: 293.66,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_164_81: {
+    name: "E3 (164.81 Hz)",
+    systemId: "chakra",
+    baseHz: 164.81,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_349_23: {
+    name: "F4 (349.23 Hz)",
+    systemId: "chakra",
+    baseHz: 349.23,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_392: {
+    name: "G4 (392 Hz)",
+    systemId: "chakra",
+    baseHz: 392,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_440: {
+    name: "A4 (440 Hz)",
+    systemId: "chakra",
+    baseHz: 440,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_493_88: {
+    name: "B4 (493.88 Hz)",
+    systemId: "chakra",
+    baseHz: 493.88,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_256: {
+    name: "C3 (256 Hz)",
+    systemId: "chakra",
+    baseHz: 256,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_288: {
+    name: "D3 (288 Hz)",
+    systemId: "chakra",
+    baseHz: 288,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_167: {
+    name: "E3+ (167 Hz)",
+    systemId: "chakra",
+    baseHz: 167,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_171: {
+    name: "F3 (171 Hz)",
+    systemId: "chakra",
+    baseHz: 171,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_192: {
+    name: "G3 (192 Hz)",
+    systemId: "chakra",
+    baseHz: 192,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_216: {
+    name: "A3 (216 Hz)",
+    systemId: "chakra",
+    baseHz: 216,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_432: {
+    name: "A4 (432 Hz)",
+    systemId: "chakra",
+    baseHz: 432,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  chakra_240: {
+    name: "B3 (240 Hz)",
+    systemId: "chakra",
+    baseHz: 240,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_7_83: {
+    name: "Шуман 1 (7.83 Hz)",
+    systemId: "earth_space",
+    baseHz: 7.83,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_14_3: {
+    name: "Шуман 2 (14.3 Hz)",
+    systemId: "earth_space",
+    baseHz: 14.3,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_250_56: {
+    name: "Шуман (октава) (250.56 Hz)",
+    systemId: "earth_space",
+    baseHz: 250.56,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_9_36: {
+    name: "Геомагнитное поле (9.36 Hz)",
+    systemId: "earth_space",
+    baseHz: 9.36,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_207_67: {
+    name: "H-alpha (207.67 Hz)",
+    systemId: "earth_space",
+    baseHz: 207.67,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_140_18: {
+    name: "H-beta (140.18 Hz)",
+    systemId: "earth_space",
+    baseHz: 140.18,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_157: {
+    name: "H-gamma (157 Hz)",
+    systemId: "earth_space",
+    baseHz: 157,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_166_14: {
+    name: "H-delta (166.14 Hz)",
+    systemId: "earth_space",
+    baseHz: 166.14,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_171_65: {
+    name: "H-epsilon (171.65 Hz)",
+    systemId: "earth_space",
+    baseHz: 171.65,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_174: {
+    name: "Сириус (174 Hz)",
+    systemId: "earth_space",
+    baseHz: 174,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  earth_space_154_15: {
+    name: "Галактика (154.15 Hz)",
+    systemId: "earth_space",
+    baseHz: 154.15,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_126_22: {
+    name: "Камертон Солнца (126.22 Hz)",
+    systemId: "acoustic",
+    baseHz: 126.22,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_136_1: {
+    name: "Камертон OM / Earth Year (136.1 Hz)",
+    systemId: "acoustic",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_194_18: {
+    name: "Камертон Earth Day (194.18 Hz)",
+    systemId: "acoustic",
+    baseHz: 194.18,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_221_23: {
+    name: "Камертон Венеры (221.23 Hz)",
+    systemId: "acoustic",
+    baseHz: 221.23,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_147_85: {
+    name: "Камертон Сатурна (147.85 Hz)",
+    systemId: "acoustic",
+    baseHz: 147.85,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_141_27: {
+    name: "Камертон Меркурия (141.27 Hz)",
+    systemId: "acoustic",
+    baseHz: 141.27,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_256: {
+    name: "Master Fork — Steiner C (256 Hz)",
+    systemId: "acoustic",
+    baseHz: 256,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_128: {
+    name: "Otto 128 (тело) (128 Hz)",
+    systemId: "acoustic",
+    baseHz: 128,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_261_63: {
+    name: "Хрустальная чаша C (261.63 Hz)",
+    systemId: "acoustic",
+    baseHz: 261.63,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_293_66: {
+    name: "Хрустальная чаша D (293.66 Hz)",
+    systemId: "acoustic",
+    baseHz: 293.66,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_167: {
+    name: "Тибетская чаша E (167 Hz)",
+    systemId: "acoustic",
+    baseHz: 167,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_349_23: {
+    name: "Хрустальная чаша F (349.23 Hz)",
+    systemId: "acoustic",
+    baseHz: 349.23,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_392: {
+    name: "Хрустальная чаша G (392 Hz)",
+    systemId: "acoustic",
+    baseHz: 392,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_432: {
+    name: "Чаша A=432 (432 Hz)",
+    systemId: "acoustic",
+    baseHz: 432,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_493_88: {
+    name: "Хрустальная чаша B (493.88 Hz)",
+    systemId: "acoustic",
+    baseHz: 493.88,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_126_22: {
+    name: "Гонг Солнца (126.22 Hz)",
+    systemId: "acoustic",
+    baseHz: 126.22,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_210_42: {
+    name: "Гонг Луны (210.42 Hz)",
+    systemId: "acoustic",
+    baseHz: 210.42,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_221_23: {
+    name: "Гонг Венеры (221.23 Hz)",
+    systemId: "acoustic",
+    baseHz: 221.23,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_144_72: {
+    name: "Гонг Марса (144.72 Hz)",
+    systemId: "acoustic",
+    baseHz: 144.72,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_183_58: {
+    name: "Гонг Юпитера (183.58 Hz)",
+    systemId: "acoustic",
+    baseHz: 183.58,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_147_85: {
+    name: "Гонг Сатурна (147.85 Hz)",
+    systemId: "acoustic",
+    baseHz: 147.85,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_207_36: {
+    name: "Гонг Урана (207.36 Hz)",
+    systemId: "acoustic",
+    baseHz: 207.36,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_211_44: {
+    name: "Гонг Нептуна (211.44 Hz)",
+    systemId: "acoustic",
+    baseHz: 211.44,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_140_64: {
+    name: "Гонг Плутона (140.64 Hz)",
+    systemId: "acoustic",
+    baseHz: 140.64,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_136_1: {
+    name: "Гонг OM / Земля год (136.1 Hz)",
+    systemId: "acoustic",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_141_27: {
+    name: "Колокольчики Меркурия (141.27 Hz)",
+    systemId: "acoustic",
+    baseHz: 141.27,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_432: {
+    name: "Колокольчики 432 (432 Hz)",
+    systemId: "acoustic",
+    baseHz: 432,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  acoustic_528: {
+    name: "Колокольчики Solfeggio (528 Hz)",
+    systemId: "acoustic",
+    baseHz: 528,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_136_1: {
+    name: "Монохорд OM (136.1 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_432: {
+    name: "Монохорд A=432 (432 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 432,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_261_63: {
+    name: "Монохорд C — корень (261.63 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 261.63,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_136_1: {
+    name: "Шрути-бокс OM (136.1 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_167: {
+    name: "Шрути-бокс E (167 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 167,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_220: {
+    name: "Тамбура A — третий глаз (220 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 220,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_80: {
+    name: "Фрейм-барабан (80 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 80,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_100: {
+    name: "Шаманский барабан (Тета 5 Hz) (100 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 100,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_70: {
+    name: "Шаманский медленный (70 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 70,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_90: {
+    name: "Барабан — мягкий транс (4 Hz) (90 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 90,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  drone_rhythm_110: {
+    name: "Барабан — активный (7 Hz) (110 Hz)",
+    systemId: "drone_rhythm",
+    baseHz: 110,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_200: {
+    name: "Бинауральный тета 7.8 Hz (200 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 200,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_136_1: {
+    name: "Бинауральный OM (136.1 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_100: {
+    name: "Бинауральный альфа ≈8-12 Hz (100 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 100,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_250_56: {
+    name: "Шуман — октавный тон (250.56 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 250.56,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_7_83: {
+    name: "Шуман прямой 7.83 Hz (7.83 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 7.83,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_174: {
+    name: "UT — боль (174 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 174,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_285: {
+    name: "Восстановление (285 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 285,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_396: {
+    name: "UT — страх (396 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 396,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_417: {
+    name: "RE — трансформация (417 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 417,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_528: {
+    name: "MI — чудо (528 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 528,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_639: {
+    name: "FA — связь (639 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 639,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_741: {
+    name: "SOL — очищение (741 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 741,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_852: {
+    name: "LA — дух (852 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 852,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_963: {
+    name: "SI — единство (963 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 963,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_136_1: {
+    name: "OM на 136.10 Hz (136.1 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 136.1,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_196: {
+    name: "LAM — корневая (196 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 196,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_220: {
+    name: "VAM — сакральная (220 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 220,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_167: {
+    name: "RAM — solar plexus (167 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 167,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_174: {
+    name: "YAM — сердечная (174 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 174,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_196: {
+    name: "HAM — горловая (196 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 196,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  digital_binaural_220: {
+    name: "OM — третий глаз/корона (220 Hz)",
+    systemId: "digital_binaural",
+    baseHz: 220,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_126_22: {
+    name: "Хрустальная чаша · Личность · Солнце (126.22 Hz)",
+    systemId: "errarium",
+    baseHz: 126.22,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_210_42: {
+    name: "Тибетская поющая чаша · Эмоции · Луна (210.42 Hz)",
+    systemId: "errarium",
+    baseHz: 210.42,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_141_27: {
+    name: "Колокольчики · Ум · Меркурий (141.27 Hz)",
+    systemId: "errarium",
+    baseHz: 141.27,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_221_23: {
+    name: "Арфа · Чувства · Венера (221.23 Hz)",
+    systemId: "errarium",
+    baseHz: 221.23,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_144_72: {
+    name: "Барабан · Действие · Марс (144.72 Hz)",
+    systemId: "errarium",
+    baseHz: 144.72,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_183_58: {
+    name: "Орган · Рост · Юпитер (183.58 Hz)",
+    systemId: "errarium",
+    baseHz: 183.58,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
+  errarium_147_85: {
+    name: "Контрабас · Закон · Сатурн (147.85 Hz)",
+    systemId: "errarium",
+    baseHz: 147.85,
+    waveform: "sine",
+    harmonics: [ { multiple: 1, gainRatio: 1, decaySec: 6 } ],
+    attackSec: 0.5, releaseSec: 2, masterVolume: 1.0,
+    reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
+    repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
+  },
   crystal_bowl: {
     name: "Crystal Bowl",
+    systemId: "cosmic_octave",
     baseHz: 126.22,
     waveform: "sine",
     harmonics: [
@@ -117,6 +1285,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   tibetan_bowl: {
     name: "Tibetan Singing Bowl",
+    systemId: "cosmic_octave",
     baseHz: 210.42,
     waveform: "sine",
     harmonics: [
@@ -136,6 +1305,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   bells: {
     name: "Bells",
+    systemId: "cosmic_octave",
     baseHz: 141.27,
     waveform: "sine",
     harmonics: [
@@ -161,6 +1331,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   dramyen: {
     name: "Dramyen (Dra-nyen)",
+    systemId: "cosmic_octave",
     baseHz: 221.23,
     waveform: "triangle",
     harmonics: [
@@ -182,6 +1353,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   drum: {
     name: "Drum",
+    systemId: "cosmic_octave",
     baseHz: 144.72,
     waveform: "sine",
     harmonics: [
@@ -199,6 +1371,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   monastery: {
     name: "Monastery Orchestra",
+    systemId: "cosmic_octave",
     baseHz: 183.58,
     waveform: "sine",
     harmonics: [
@@ -220,6 +1393,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   dungchen: {
     name: "Dungchen",
+    systemId: "cosmic_octave",
     baseHz: 147.85,
     waveform: "sawtooth",
     harmonics: [
@@ -239,6 +1413,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   synthesizer: {
     name: "Synthesizer",
+    systemId: "cosmic_octave",
     baseHz: 207.36,
     waveform: "sine",
     harmonics: [
@@ -259,6 +1434,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   lingm: {
     name: "Lingm (Glingbu)",
+    systemId: "cosmic_octave",
     baseHz: 211.44,
     waveform: "sine",
     harmonics: [
@@ -280,6 +1456,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   gong: {
     name: "Gong",
+    systemId: "cosmic_octave",
     baseHz: 140.64,
     waveform: "sine",
     harmonics: [
@@ -301,6 +1478,7 @@ export const PRESETS: Record<string, SynthPreset> = {
   },
   tibetan_bowl_low: {
     name: "Tibetan Bowl (Low)",
+    systemId: "cosmic_octave",
     baseHz: 194.18,
     waveform: "sine",
     harmonics: [
@@ -345,6 +1523,12 @@ export type PlayOptions = {
 // ── Tools ─────────────────────────────────────────────────────────
 
 const sampleBuffers = new Map<string, AudioBuffer>();
+
+export function clearAudioCache() {
+  sampleBuffers.clear();
+  currentReverbConfigString = "";
+  console.log("Audio cache cleared (sample buffers and reverb).");
+}
 const samplePromises = new Map<string, Promise<AudioBuffer>>();
 
 async function loadSample(c: AudioContext, url: string): Promise<AudioBuffer> {
@@ -485,6 +1669,8 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   const reverbConfig = options.reverb ?? preset?.reverb;
   const noiseBurst = options.noiseBurst ?? preset?.noiseBurst;
   const loop = options.loop ?? true;
+  const pannerType = options.pannerType ?? preset?.pannerType ?? "stereo";
+  const spatialRotationHz = options.spatialRotationHz ?? preset?.spatialRotationHz ?? 0;
 
   const now = c.currentTime;
 
@@ -544,80 +1730,112 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   // 2. Harmonics and Aux Tones (Oscillators)
   const allTones = [...harmonics, ...auxTones];
   allTones.forEach((h, i) => {
-    const osc = c.createOscillator();
-    osc.type = h.waveform ?? waveform;
-    osc.frequency.value = h.absoluteHz ?? hz * h.multiple;
-
-    if (h.detuneCentsRange && h.detuneCentsRange > 0) {
-      osc.detune.value = (Math.random() - 0.5) * 2 * h.detuneCentsRange;
-    }
-
-    const wobbleGain = c.createGain();
-    wobbleGain.gain.value = 1.0;
-
-    const envGain = c.createGain();
-    envGain.gain.value = 0;
-
-    osc.connect(wobbleGain);
-    wobbleGain.connect(envGain);
-
-    let finalPan = h.pan !== undefined ? h.pan : (stereoSpread > 0 ? (i % 2 === 0 ? -stereoSpread : stereoSpread) : 0);
-    if (options.panDirection) {
-      finalPan *= options.panDirection; // Alternate pan
-    }
-    
-    if (finalPan !== 0) {
-      const panner = c.createStereoPanner();
-      panner.pan.value = Math.max(-1, Math.min(1, finalPan));
-      envGain.connect(panner);
-      panner.connect(outputNode);
-      activeNodes.push(panner);
-    } else {
-      envGain.connect(outputNode);
-    }
-
-    // ADSR Envelope
     const pAttack  = h.attackSec  ?? attackSec;
     const pDecay   = h.decaySec   ?? decaySec;
     const pSustain = h.sustainRatio ?? sustainRatio;
     const pRelease = h.releaseSec ?? releaseSec;
-
     const targetGain = peakGain * h.gainRatio * (options.gainMultiplier || 1);
-    envGain.gain.setValueAtTime(0, now);
-    envGain.gain.linearRampToValueAtTime(targetGain, now + pAttack);
 
-    if (pDecay > 0) {
-      envGain.gain.setTargetAtTime(targetGain * pSustain, now + pAttack, pDecay / 3);
+    const createOscPath = (freq: number, panVal: number) => {
+      const osc = c.createOscillator();
+      osc.type = h.waveform ?? waveform;
+      osc.frequency.value = freq;
+
+      if (h.detuneCentsRange && h.detuneCentsRange > 0) {
+        osc.detune.value = (Math.random() - 0.5) * 2 * h.detuneCentsRange;
+      }
+
+      const wobbleGain = c.createGain();
+      wobbleGain.gain.value = 1.0;
+      const envGain = c.createGain();
+      envGain.gain.value = 0;
+
+      osc.connect(wobbleGain);
+      wobbleGain.connect(envGain);
+
+      const panner = c.createStereoPanner();
+      panner.pan.value = Math.max(-1, Math.min(1, panVal));
+      envGain.connect(panner);
+
+      let finalOutput: AudioNode = panner;
+
+      if (pannerType === "3d") {
+        // Replace or wrap with 3D Panner
+        const p3d = c.createPanner();
+        p3d.panningModel = "HRTF";
+        p3d.distanceModel = "inverse";
+        
+        // Convert panVal (-1..1) to X position (-5..5)
+        p3d.positionX.setValueAtTime(panVal * 5, now);
+        p3d.positionZ.setValueAtTime(-2, now); // Slightly in front
+
+        if (spatialRotationHz > 0) {
+          // Circular rotation animation
+          const angleOffset = (i / allTones.length) * Math.PI * 2;
+          const radius = 5;
+          const updatePos = () => {
+            const time = c.currentTime;
+            const angle = time * Math.PI * 2 * spatialRotationHz + angleOffset;
+            p3d.positionX.setValueAtTime(Math.sin(angle) * radius, time);
+            p3d.positionZ.setValueAtTime(Math.cos(angle) * radius, time);
+            if (activeOscillators.length > 0) requestAnimationFrame(updatePos);
+          };
+          updatePos();
+        }
+
+        panner.connect(p3d);
+        p3d.connect(outputNode);
+        activeNodes.push(p3d);
+        finalOutput = p3d;
+      } else {
+        panner.connect(outputNode);
+      }
+
+      // ADSR Envelope
+      envGain.gain.setValueAtTime(0, now);
+      envGain.gain.linearRampToValueAtTime(targetGain, now + pAttack);
+      if (pDecay > 0) {
+        envGain.gain.setTargetAtTime(targetGain * pSustain, now + pAttack, pDecay / 3);
+      }
+      if (!loop) {
+        const holdEnd = now + Math.max(pAttack + pDecay, durationSec - pRelease);
+        envGain.gain.cancelScheduledValues(holdEnd);
+        envGain.gain.setTargetAtTime(0, holdEnd, pRelease / 3);
+      }
+
+      // Wobble (LFO)
+      if (h.wobbleHz && h.wobbleHz > 0) {
+        const lfo = c.createOscillator();
+        lfo.frequency.value = h.wobbleHz;
+        const lfoGain = c.createGain();
+        lfoGain.gain.value = h.wobbleDepthCents ?? 3;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.detune);
+        lfo.start(now);
+        if (!loop) lfo.stop(now + durationSec + pRelease + 0.1);
+        activeOscillators.push(lfo);
+        activeNodes.push(lfoGain);
+      }
+
+      osc.start(now);
+      if (!loop) osc.stop(now + durationSec + pRelease + 0.1);
+      activeOscillators.push(osc);
+      activeGains.push(envGain);
+      activeNodes.push(panner, wobbleGain);
+    };
+
+    const baseFreq = h.absoluteHz ?? hz * h.multiple;
+
+    if (h.binauralBeatHz && h.binauralBeatHz > 0) {
+      // Create TWO paths for binaural effect: Left (freq - beat/2) and Right (freq + beat/2)
+      createOscPath(baseFreq - h.binauralBeatHz / 2, -1);
+      createOscPath(baseFreq + h.binauralBeatHz / 2, 1);
+    } else {
+      // Standard single path
+      let finalPan = h.pan !== undefined ? h.pan : (stereoSpread > 0 ? (i % 2 === 0 ? -stereoSpread : stereoSpread) : 0);
+      if (options.panDirection) finalPan *= options.panDirection;
+      createOscPath(baseFreq, finalPan);
     }
-
-    if (!loop) {
-      // release phase for non-looping
-      const holdEnd = now + Math.max(pAttack + pDecay, durationSec - pRelease);
-      envGain.gain.cancelScheduledValues(holdEnd);
-      envGain.gain.setTargetAtTime(0, holdEnd, pRelease / 3);
-    }
-
-    // LFO Pitch Modulation (via detune, in cents)
-    if (h.wobbleHz && h.wobbleHz > 0) {
-      const lfo = c.createOscillator();
-      lfo.type = "sine";
-      lfo.frequency.value = h.wobbleHz;
-      const lfoDepth = c.createGain();
-      // Default depth: 3 cents (subtle, meditative). User can override via wobbleDepthCents.
-      lfoDepth.gain.value = h.wobbleDepthCents ?? 3;
-      lfo.connect(lfoDepth);
-      lfoDepth.connect(osc.detune);  // pitch modulation, not amplitude
-      lfo.start(now);
-      if (!loop) lfo.stop(now + durationSec + pRelease + 0.1);
-      activeOscillators.push(lfo);
-      activeNodes.push(lfoDepth);
-    }
-
-    osc.start(now);
-    if (!loop) osc.stop(now + durationSec + pRelease + 0.1);
-
-    activeOscillators.push(osc);
-    activeGains.push(envGain);
   });
 
   // 3. Noise Burst
@@ -723,6 +1941,7 @@ export function stopAllSequences(): void {
     clearTimeout(seq.timeoutId);
   });
   activeSequences.clear();
+  stopFrequency();
 }
 
 export function startSequence(presetId: string, preset: SynthPreset, hz: number, customDurationSec: number = 4.0): void {
