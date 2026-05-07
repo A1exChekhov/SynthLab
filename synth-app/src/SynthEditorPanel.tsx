@@ -669,7 +669,7 @@ export default function SynthEditorPanel() {
                const renderNode = (name: string, node: any, path: string = "", depth: number = 0) => {
                  const fullPath = path ? `${path}/${name}` : name;
                  const isCollapsed = collapsedGroups.has(fullPath);
-                 const hasSub = Object.keys(node.subgroups).length > 0;
+                 // const hasSub = Object.keys(node.subgroups).length > 0;
                  const hasPresets = node.presets.length > 0;
                  
                  return (
@@ -702,7 +702,7 @@ export default function SynthEditorPanel() {
                              display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", 
                              gap: "8px", paddingTop: "8px", paddingBottom: "8px"
                            }}>
-                             {node.presets.map(key => renderPresetCard(key))}
+                             {node.presets.map((key: string) => renderPresetCard(key))}
                            </div>
                          )}
                        </div>

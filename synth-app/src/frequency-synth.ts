@@ -743,7 +743,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  acoustic_126_22: {
+  acoustic_126_22_alt: {
     name: "Гонг Солнца (126.22 Hz)",
     systemId: "acoustic",
     baseHz: 126.22,
@@ -763,7 +763,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  acoustic_221_23: {
+  acoustic_221_23_alt: {
     name: "Гонг Венеры (221.23 Hz)",
     systemId: "acoustic",
     baseHz: 221.23,
@@ -793,7 +793,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  acoustic_147_85: {
+  acoustic_147_85_alt: {
     name: "Гонг Сатурна (147.85 Hz)",
     systemId: "acoustic",
     baseHz: 147.85,
@@ -833,7 +833,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  acoustic_136_1: {
+  acoustic_136_1_alt: {
     name: "Гонг OM / Земля год (136.1 Hz)",
     systemId: "acoustic",
     baseHz: 136.1,
@@ -843,7 +843,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  acoustic_141_27: {
+  acoustic_141_27_alt: {
     name: "Колокольчики Меркурия (141.27 Hz)",
     systemId: "acoustic",
     baseHz: 141.27,
@@ -853,7 +853,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  acoustic_432: {
+  acoustic_432_alt: {
     name: "Колокольчики 432 (432 Hz)",
     systemId: "acoustic",
     baseHz: 432,
@@ -903,7 +903,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  drone_rhythm_136_1: {
+  drone_rhythm_136_1_alt: {
     name: "Шрути-бокс OM (136.1 Hz)",
     systemId: "drone_rhythm",
     baseHz: 136.1,
@@ -1123,7 +1123,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  digital_binaural_136_1: {
+  digital_binaural_136_1_alt: {
     name: "OM на 136.10 Hz (136.1 Hz)",
     systemId: "digital_binaural",
     baseHz: 136.1,
@@ -1163,7 +1163,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  digital_binaural_174: {
+  digital_binaural_174_alt: {
     name: "YAM — сердечная (174 Hz)",
     systemId: "digital_binaural",
     baseHz: 174,
@@ -1173,7 +1173,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  digital_binaural_196: {
+  digital_binaural_196_alt: {
     name: "HAM — горловая (196 Hz)",
     systemId: "digital_binaural",
     baseHz: 196,
@@ -1183,7 +1183,7 @@ export const PRESETS: Record<string, SynthPreset> = {
     reverb: { wet: 0.3, decaySec: 5, preDelayMs: 20 },
     repeat: { enabled: true, intervalSec: 8, timingJitterSec: 0.4, gainJitter: 0.08 }
   },
-  digital_binaural_220: {
+  digital_binaural_220_alt: {
     name: "OM — третий глаз/корона (220 Hz)",
     systemId: "digital_binaural",
     baseHz: 220,
@@ -1518,6 +1518,8 @@ export type PlayOptions = {
   overlap?: boolean;
   gainMultiplier?: number;
   panDirection?: number; // 1 or -1
+  pannerType?: string;
+  spatialRotationHz?: number;
 };
 
 // ── Tools ─────────────────────────────────────────────────────────
@@ -1757,7 +1759,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
       panner.pan.value = Math.max(-1, Math.min(1, panVal));
       envGain.connect(panner);
 
-      let finalOutput: AudioNode = panner;
+      // let finalOutput: AudioNode = panner;
 
       if (pannerType === "3d") {
         // Replace or wrap with 3D Panner
@@ -1786,7 +1788,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
         panner.connect(p3d);
         p3d.connect(outputNode);
         activeNodes.push(p3d);
-        finalOutput = p3d;
+        // finalOutput = p3d;
       } else {
         panner.connect(outputNode);
       }

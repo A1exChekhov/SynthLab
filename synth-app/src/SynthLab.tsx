@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { playFrequency, stopFrequency, Harmonic } from "./frequency-synth";
+import { playFrequency, stopFrequency, type Harmonic } from "./frequency-synth";
 
 export default function SynthLab() {
   // Базовые настройки
@@ -143,19 +143,19 @@ my_custom_preset: {
               <div style={{ color: "#666", width: "20px" }}>#{i+1}</div>
               
               <label style={labelStyle}>Множитель (Multiple)
-                <input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value)} style={inputStyle} title="1 = База. 2 = Октава. Дробные (1.34) создают металл." />
+                <input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value === "" ? "" : Number(e.target.value))} style={inputStyle} title="1 = База. 2 = Октава. Дробные (1.34) создают металл." />
               </label>
               
               <label style={labelStyle}>Громкость (Gain 0..1)
-                <input type="number" step="0.05" value={h.gainRatio} onChange={e => updateHarmonic(i, "gainRatio", e.target.value)} style={inputStyle} />
+                <input type="number" step="0.05" value={h.gainRatio} onChange={e => updateHarmonic(i, "gainRatio", e.target.value === "" ? "" : Number(e.target.value))} style={inputStyle} />
               </label>
 
               <label style={labelStyle}>LFO Пульсация (Hz)
-                <input type="number" step="0.1" placeholder="Выкл" value={h.wobbleHz || ""} onChange={e => updateHarmonic(i, "wobbleHz", e.target.value)} style={inputStyle} title="Скорость эффекта 'туда-сюда' (например, 0.5)" />
+                <input type="number" step="0.1" placeholder="Выкл" value={h.wobbleHz || ""} onChange={e => updateHarmonic(i, "wobbleHz", e.target.value === "" ? "" : Number(e.target.value))} style={inputStyle} title="Скорость эффекта 'туда-сюда' (например, 0.5)" />
               </label>
 
               <label style={labelStyle}>Микро-сдвиг (Cents)
-                <input type="number" step="1" placeholder="Выкл" value={h.detuneCentsRange || ""} onChange={e => updateHarmonic(i, "detuneCentsRange", e.target.value)} style={inputStyle} title="Шумовое искривление для живости (например, 5)" />
+                <input type="number" step="1" placeholder="Выкл" value={h.detuneCentsRange || ""} onChange={e => updateHarmonic(i, "detuneCentsRange", e.target.value === "" ? "" : Number(e.target.value))} style={inputStyle} title="Шумовое искривление для живости (например, 5)" />
               </label>
 
               <button onClick={() => removeHarmonic(i)} style={{ background: "transparent", color: "#8b0000", border: "1px solid #8b0000", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", height: "32px" }}>
