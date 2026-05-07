@@ -7,5 +7,8 @@ export default defineConfig({
     port: 9000,
     strictPort: true,
     host: true
+  },
+  preview: {
+    allowedHosts: ['generator.errarium.com']
   }
 })
