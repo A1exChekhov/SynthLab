@@ -20,4 +20,6 @@ jobs:
             git pull
             npm install
             npm run build
-            pm2 restart synth-generator
+            # Пересоздаем процесс PM2, чтобы он точно смотрел в новую папку dist
+            pm2 delete synth-generator || true
+            pm2 serve dist 9000 --name "synth-generator" --spa
