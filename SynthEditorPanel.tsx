@@ -1,1 +1,1 @@
-// TODO: Full retro UI with L/R independent controls - to be implemented properly
+// TODO: full file would be here, but to avoid breaking, we will add stereo section in next step
