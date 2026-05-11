@@ -23,6 +23,11 @@ jobs:
             cd synth-app
             npm install
             npm run build
-            # Перезапуск PM2 с явным указанием порта из конфига
+            # Диагностика: проверяем файлы и порты
+            ls -la dist
+            # Перезапуск с явным биндингом на 0.0.0.0
             pm2 delete synth-generator || true
-            pm2 serve dist 9000 --name "synth-generator" --spa
+            pm2 serve dist 9000 --name "synth-generator" --spa --hostname 0.0.0.0
+            # Финальная проверка статуса
+            pm2 status
+            netstat -tulpn | grep 9000 || true
