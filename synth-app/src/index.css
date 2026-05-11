@@ -1,5 +1,65 @@
+:root {
+  --bg-color: #050508;
+  --panel-bg: rgba(15, 15, 25, 0.8);
+  --accent-pink: #ff2a6d;
+  --accent-cyan: #05d9e8;
+  --accent-amber: #ffae00;
+  --text-primary: #e0e0e0;
+  --text-secondary: #8a8a8a;
+  --border-color: #333344;
+  --neon-glow: 0 0 10px rgba(255, 42, 109, 0.5);
+  --neon-glow-cyan: 0 0 10px rgba(5, 217, 232, 0.5);
+}
+
 body {
   margin: 0;
   padding: 0;
-  background: #f8f9fa;
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Custom Scrollbar for Retro Feel */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #050508;
+}
+::-webkit-scrollbar-thumb {
+  background: #222233;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-pink);
+}
+
+/* Neon utilities */
+.neon-text {
+  text-shadow: var(--neon-glow);
+}
+.gauge {
+  filter: drop-shadow(0 0 5px rgba(255, 42, 109, 0.3));
+  transition: all 0.3s ease;
+}
+
+.neon-text-cyan {
+  color: var(--accent-cyan);
+  text-shadow: var(--neon-glow-cyan);
+}
+
+button:hover {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+}
+
+input[type="range"] {
+  cursor: pointer;
 }
