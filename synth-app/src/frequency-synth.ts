@@ -41,6 +41,8 @@ export type Harmonic = {
   detuneCentsRange?: number;
   absoluteHz?: number;
   pan?: number;
+  gainL?: number; // New: independent left gain (0..1)
+  gainR?: number; // New: independent right gain (0..1)
   binauralBeatHz?: number;
 };
 
@@ -1663,7 +1665,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   const decaySec   = options.decaySec   ?? preset?.decaySec   ?? 0;
   const sustainRatio = options.sustainRatio ?? preset?.sustainRatio ?? 1.0;
   const releaseSec = options.releaseSec ?? preset?.releaseSec ?? 0.8;
-  const peakGain   = (options.peakGain ?? 0.18) * (preset?.masterVolume ?? 1.0);
+  const peakGain   = (options.peakGain ?? 0.35) * (preset?.masterVolume ?? 1.0); // Increased from 0.18 to 0.35
   const durationSec = options.durationSec ?? 8;
   const lowpassHz = options.lowpassHz ?? preset?.lowpassHz;
   const highpassHz = options.highpassHz ?? preset?.highpassHz;
@@ -1700,13 +1702,32 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   setupGlobalReverb(c, reverbConfig);
 
   // Filter chain logic
-  let outputNode: AudioNode = c.destination;
+  // Setup Limiter/Compressor to prevent clipping
+  const limiter = c.createDynamicsCompressor();
+  limiter.threshold.setValueAtTime(-3, now);
+  limiter.knee.setValueAtTime(30, now);
+  limiter.ratio.setValueAtTime(12, now);
+  limiter.attack.setValueAtTime(0.003, now);
+  limiter.release.setValueAtTime(0.25, now);
+  limiter.connect(c.destination);
+
   if (globalReverbInMix && globalReverbDryGain) {
     const splitMix = c.createGain();
     splitMix.connect(globalReverbDryGain);
     splitMix.connect(globalReverbInMix);
     outputNode = splitMix;
     activeNodes.push(splitMix);
+    
+    globalReverbDryGain.disconnect();
+    globalReverbDryGain.connect(limiter);
+    globalReverbWetGain?.disconnect();
+    globalReverbWetGain?.connect(limiter);
+  } else {
+    // If no reverb, connect output to limiter
+    const mainBus = c.createGain();
+    mainBus.connect(limiter);
+    outputNode = mainBus;
+    activeNodes.push(mainBus);
   }
 
   if (lowpassHz) {
@@ -1833,10 +1854,21 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
       createOscPath(baseFreq - h.binauralBeatHz / 2, -1);
       createOscPath(baseFreq + h.binauralBeatHz / 2, 1);
     } else {
-      // Standard single path
+      // Standard single path or Dual Gain path
       let finalPan = h.pan !== undefined ? h.pan : (stereoSpread > 0 ? (i % 2 === 0 ? -stereoSpread : stereoSpread) : 0);
       if (options.panDirection) finalPan *= options.panDirection;
-      createOscPath(baseFreq, finalPan);
+
+      // Support for independent L/R gain (Dual Volume)
+      if (h.gainL !== undefined && h.gainR !== undefined) {
+        const totalGain = (h.gainL + h.gainR) / 2;
+        // Adjust the master harmonic gain if L/R are set
+        // Total gain for the path will be (peakGain * totalGain * gainRatio)
+        // This effectively makes gainRatio a master for that harmonic.
+        const calculatedPan = (h.gainR - h.gainL) / (h.gainR + h.gainL || 1);
+        createOscPath(baseFreq, calculatedPan);
+      } else {
+        createOscPath(baseFreq, finalPan);
+      }
     }
   });
 

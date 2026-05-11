@@ -410,15 +410,68 @@ export default function SynthEditorPanel() {
               <button onClick={() => {}} style={buttonStyle(false, colors.accentCyan)}>+ ADD LAYER</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {editedPreset?.harmonics.map((h, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "30px 1fr 1fr 1fr 1fr 1fr 30px", gap: "10px", alignItems: "center", background: "rgba(255,255,255,0.03)", padding: "8px", borderRadius: "4px" }}>
-                  <span style={{ fontSize: "10px", color: colors.accent }}>#{i+1}</span>
-                  <label style={{ fontSize: "9px" }}>MULT <input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value)} style={{ ...inputStyle, width: "100%" }} /></label>
-                  <label style={{ fontSize: "9px" }}>GAIN <input type="number" step="0.05" value={h.gainRatio} onChange={e => updateHarmonic(i, "gainRatio", e.target.value)} style={{ ...inputStyle, width: "100%" }} /></label>
-                  <label style={{ fontSize: "9px" }}>DETUNE <input type="number" step="1" value={h.detuneCentsRange || 0} onChange={e => updateHarmonic(i, "detuneCentsRange", e.target.value)} style={{ ...inputStyle, width: "100%" }} /></label>
-                  <label style={{ fontSize: "9px" }}>PAN <input type="number" step="0.1" value={h.pan || 0} onChange={e => updateHarmonic(i, "pan", e.target.value)} style={{ ...inputStyle, width: "100%" }} /></label>
-                  <label style={{ fontSize: "9px" }}>WOBBLE <input type="number" step="0.01" value={h.wobbleHz || 0} onChange={e => updateHarmonic(i, "wobbleHz", e.target.value)} style={{ ...inputStyle, width: "100%" }} /></label>
-                  <button onClick={() => {}} style={{ background: "transparent", border: "none", color: "#666", cursor: "pointer" }}>×</button>
+                {editedPreset?.harmonics.map((h, i) => (
+                <div key={i} style={{ 
+                  display: "grid", 
+                  gridTemplateColumns: "30px 1.2fr 1.5fr 1fr 1fr 1fr 30px", 
+                  gap: "12px", 
+                  alignItems: "center", 
+                  background: "rgba(255,255,255,0.03)", 
+                  padding: "10px", 
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.05)"
+                }}>
+                  <span style={{ fontSize: "10px", color: colors.accent, fontWeight: "bold" }}>#{i+1}</span>
+                  
+                  {/* Frequency Multiplier */}
+                  <label style={{ fontSize: "9px", color: colors.textSecondary }}>
+                    MULT 
+                    <input type="number" step="0.01" value={h.multiple} 
+                      onChange={e => updateHarmonic(i, "multiple", e.target.value)} 
+                      style={{ ...inputStyle, width: "100%", marginTop: "4px" }} />
+                  </label>
+
+                  {/* Dual Stereo Gain (L/R) */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: colors.accentCyan }}>
+                      <span>L</span><span>STEREO GAIN</span><span>R</span>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      <input type="range" min="0" max="1" step="0.01" value={h.gainL ?? h.gainRatio} 
+                        onChange={e => updateHarmonic(i, "gainL", Number(e.target.value))} 
+                        style={{ flex: 1, accentColor: colors.accentCyan, height: "4px" }} title="Left Volume" />
+                      <input type="range" min="0" max="1" step="0.01" value={h.gainR ?? h.gainRatio} 
+                        onChange={e => updateHarmonic(i, "gainR", Number(e.target.value))} 
+                        style={{ flex: 1, accentColor: colors.accent, height: "4px" }} title="Right Volume" />
+                    </div>
+                  </div>
+
+                  <label style={{ fontSize: "9px", color: colors.textSecondary }}>
+                    DETUNE 
+                    <input type="number" step="1" value={h.detuneCentsRange || 0} 
+                      onChange={e => updateHarmonic(i, "detuneCentsRange", e.target.value)} 
+                      style={{ ...inputStyle, width: "100%", marginTop: "4px" }} />
+                  </label>
+
+                  <label style={{ fontSize: "9px", color: colors.textSecondary }}>
+                    WOBBLE 
+                    <input type="number" step="0.01" value={h.wobbleHz || 0} 
+                      onChange={e => updateHarmonic(i, "wobbleHz", e.target.value)} 
+                      style={{ ...inputStyle, width: "100%", marginTop: "4px" }} />
+                  </label>
+
+                  <label style={{ fontSize: "9px", color: colors.textSecondary }}>
+                    BINAURAL 
+                    <input type="number" step="0.1" value={h.binauralBeatHz || 0} 
+                      onChange={e => updateHarmonic(i, "binauralBeatHz", e.target.value)} 
+                      style={{ ...inputStyle, width: "100%", marginTop: "4px" }} />
+                  </label>
+
+                  <button onClick={() => removeHarmonic(i)} style={{ 
+                    background: "transparent", border: "none", color: "#666", cursor: "pointer", 
+                    fontSize: "18px", transition: "color 0.2s" 
+                  }} onMouseEnter={e => e.currentTarget.style.color = colors.accent}
+                     onMouseLeave={e => e.currentTarget.style.color = "#666"}>×</button>
                 </div>
               ))}
             </div>
