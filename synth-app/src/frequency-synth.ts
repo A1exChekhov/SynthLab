@@ -11,6 +11,7 @@ let globalReverbInMix: GainNode | null = null;
 let globalReverbWetGain: GainNode | null = null;
 let globalReverbDryGain: GainNode | null = null;
 let currentReverbConfigString: string = "";
+let analyzerNode: AnalyserNode | null = null;
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -24,6 +25,16 @@ function getCtx(): AudioContext | null {
 export function isAudioSupported(): boolean {
   if (typeof window === "undefined") return false;
   return Boolean(window.AudioContext || (window as any).webkitAudioContext);
+}
+
+export function getAnalyzer(): AnalyserNode | null {
+  const c = getCtx();
+  if (!c) return null;
+  if (!analyzerNode) {
+    analyzerNode = c.createAnalyser();
+    analyzerNode.fftSize = 2048;
+  }
+  return analyzerNode;
 }
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -1632,7 +1643,7 @@ export function stopFrequency(): void {
     try {
       activeGains.forEach(gain => {
         gain.gain.cancelScheduledValues(now);
-        gain.gain.setTargetAtTime(0, now, 0.05); // quick release
+        gain.gain.setTargetAtTime(0, now, 0.03); // slightly faster but still smooth release
       });
       activeOscillators.forEach(osc => {
         try { osc.stop(now + 0.5); } catch {}
@@ -1648,6 +1659,11 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   const c = getCtx();
   if (!c) return false;
   if (c.state === "suspended") void c.resume();
+
+  const analyzer = getAnalyzer();
+  if (analyzer) {
+    // We connect the destination to analyzer in setup
+  }
 
   if (!options.overlap) {
     stopFrequency();
@@ -1710,6 +1726,11 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   limiter.attack.setValueAtTime(0.003, now);
   limiter.release.setValueAtTime(0.25, now);
   limiter.connect(c.destination);
+  
+  const analyzer = getAnalyzer();
+  if (analyzer) {
+    limiter.connect(analyzer);
+  }
 
   if (globalReverbInMix && globalReverbDryGain) {
     const splitMix = c.createGain();
@@ -1815,8 +1836,9 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
       }
 
       // ADSR Envelope
-      envGain.gain.setValueAtTime(0, now);
-      envGain.gain.linearRampToValueAtTime(targetGain, now + pAttack);
+      // ADSR Envelope - Smoother transitions to prevent clicks
+      envGain.gain.setValueAtTime(envGain.gain.value, now);
+      envGain.gain.setTargetAtTime(targetGain, now, pAttack / 4);
       if (pDecay > 0) {
         envGain.gain.setTargetAtTime(targetGain * pSustain, now + pAttack, pDecay / 3);
       }

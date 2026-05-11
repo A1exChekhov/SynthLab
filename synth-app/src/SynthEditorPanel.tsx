@@ -4,10 +4,11 @@ import { useState, useEffect } from "react";
 import {
   playFrequency, stopFrequency, isAudioSupported, PRESETS,
   startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset,
-  SYSTEM_CATEGORIES, clearAudioCache
+  SYSTEM_CATEGORIES, clearAudioCache, getAnalyzer
 } from "./frequency-synth";
 import type { SynthPreset, Harmonic, NoiseBurst, ReverbConfig } from "./frequency-synth";
 import AnalogNeedleGauge from "./AnalogNeedleGauge";
+import AudioVisualizer from "./AudioVisualizer";
 
 const STORAGE_KEY = "synth_custom_presets";
 const ORIGINAL_KEYS = [
@@ -42,16 +43,10 @@ export default function SynthEditorPanel() {
     return true;
   });
 
-  const customGroups = Array.from(new Set(
-    Object.keys(customPresets)
-      .map(k => customPresets[k].groupId || "Без группы")
-  )).sort();
-
   const [activePresetKey, setActivePresetKey] = useState<string>(presetKeys[0] || "");
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
   const [volumes, setVolumes] = useState<Record<string, number>>({});
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameVal, setRenameVal] = useState("");
+  const [analyzer, setAnalyzer] = useState<AnalyserNode | null>(null);
 
   const [testHz, setTestHz] = useState<number>(136.1);
   const [testLoop, setTestLoop] = useState<boolean>(false);
@@ -60,10 +55,12 @@ export default function SynthEditorPanel() {
   const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
   const [supported, setSupported] = useState(true);
 
-  useEffect(() => { setSupported(isAudioSupported()); }, []);
+  useEffect(() => { 
+    setSupported(isAudioSupported());
+    setAnalyzer(getAnalyzer());
+  }, []);
 
   const [editedPreset, setEditedPreset] = useState<SynthPreset | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>("");
 
   const toggleGroup = (group: string) => {
@@ -337,17 +334,19 @@ export default function SynthEditorPanel() {
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           
           {/* Top Bar: Visual Feedback */}
-          <div style={{ background: colors.panel, padding: "24px", border: `1px solid ${colors.border}`, borderRadius: "12px", display: "flex", justifyContent: "space-around", alignItems: "center" }}>
+          <div style={{ background: colors.panel, padding: "24px", border: `1px solid ${colors.border}`, borderRadius: "12px", display: "flex", justifyContent: "space-around", alignItems: "center", gap: "20px" }}>
             <AnalogNeedleGauge label="MASTER VOL" value={(volumes[activePresetKey] ?? 1) * 100} unit="%" color={colors.accent} />
             
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "24px", color: colors.accentCyan, fontWeight: "bold", textShadow: "0 0 10px rgba(5, 217, 232, 0.5)" }}>
-                {testHz.toFixed(1)} <span style={{ fontSize: "14px" }}>Hz</span>
-              </div>
-              <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>ACTIVE FREQUENCY</div>
-              <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
-                <button onClick={handlePlay} style={buttonStyle(isPlaying || isAutoPlaying)}>LIVE TEST</button>
-                <button onClick={handleStop} style={buttonStyle(false, "#666")}>OFF</button>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+              <AudioVisualizer analyzer={analyzer} color={colors.accentCyan} height={80} />
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "24px", color: colors.accentCyan, fontWeight: "bold", textShadow: "0 0 10px rgba(5, 217, 232, 0.5)" }}>
+                  {testHz.toFixed(1)} <span style={{ fontSize: "14px" }}>Hz</span>
+                </div>
+                <div style={{ marginTop: "8px", display: "flex", gap: "8px", justifyContent: "center" }}>
+                  <button onClick={handlePlay} style={buttonStyle(isPlaying || isAutoPlaying)}>LIVE TEST</button>
+                  <button onClick={handleStop} style={buttonStyle(false, "#666")}>OFF</button>
+                </div>
               </div>
             </div>
 
@@ -397,6 +396,12 @@ export default function SynthEditorPanel() {
                 <label style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "11px" }}>
                   REVERB WET
                   <input type="number" step="0.05" value={editedPreset?.reverb?.wet || 0} onChange={e => updateReverb("wet", Number(e.target.value))} style={inputStyle} />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "11px" }}>
+                  MASTER SMOOTH (LP)
+                  <input type="range" min="200" max="20000" step="100" value={editedPreset?.lowpassHz || 20000} 
+                    onChange={e => updateGlobal("lowpassHz", Number(e.target.value))} 
+                    style={{ accentColor: colors.accentAmber }} />
                 </label>
               </div>
             </div>
