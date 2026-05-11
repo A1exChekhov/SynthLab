@@ -21,12 +21,14 @@ jobs:
             git reset --hard origin/main
             git clean -fd
             cd synth-app
+            # Очистка перед билдом
+            rm -rf dist
             npm install
             npm run build
-            # Диагностика: проверяем файлы и порты
-            ls -la dist
-            # Перезапуск на порту 4173, который ждет Nginx
+            # Убиваем PM2 и запускаем заново, чтобы исключить кэширование в памяти
             pm2 delete synth-generator || true
+            pm2 flush
             pm2 serve dist 4173 --name "synth-generator" --spa
+            pm2 save
             # Проверка
             pm2 status
