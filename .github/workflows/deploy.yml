@@ -25,9 +25,8 @@ jobs:
             npm run build
             # Диагностика: проверяем файлы и порты
             ls -la dist
-            # Перезапуск с явным биндингом на 0.0.0.0
+            # Перезапуск на порту 4173, который ждет Nginx
             pm2 delete synth-generator || true
-            pm2 serve dist 9000 --name "synth-generator" --spa --hostname 0.0.0.0
-            # Финальная проверка статуса
+            pm2 serve dist 4173 --name "synth-generator" --spa --hostname 127.0.0.1
+            # Проверка
             pm2 status
-            netstat -tulpn | grep 9000 || true
