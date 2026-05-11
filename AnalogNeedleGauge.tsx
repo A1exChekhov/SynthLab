@@ -7,6 +7,7 @@ interface AnalogNeedleGaugeProps {
   label: string;
   unit?: string;
   color?: string;
+  title?: string;
 }
 
 const AnalogNeedleGauge: React.FC<AnalogNeedleGaugeProps> = ({
@@ -16,6 +17,7 @@ const AnalogNeedleGauge: React.FC<AnalogNeedleGaugeProps> = ({
   label,
   unit = '%',
   color = '#ff2a6d',
+  title,
 }) => {
   const needleRef = useRef<SVGPathElement>(null);
   const normalized = Math.max(min, Math.min(max, value));
@@ -28,33 +30,43 @@ const AnalogNeedleGauge: React.FC<AnalogNeedleGaugeProps> = ({
   }, [angle]);
 
   return (
-    <div style={{ width: '180px', textAlign: 'center', fontFamily: 'monospace' }}>
-      <svg width="200" height="180" viewBox="0 0 200 180" >
-        <defs>
-          <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#333" />
-            <stop offset="100%" stopColor="#111" />
-          </linearGradient>
-        </defs>
-        <circle cx="100" cy="100" r="75" fill="none" stroke="#222" strokeWidth="25" />
-        <circle cx="100" cy="100" r="75" fill="none" stroke="#1a1a1a" strokeWidth="18" />
-        <path d="M 40 130 A 75 75 0 0 1 160 130" fill="none" stroke={color} strokeWidth="14" strokeLinecap="round" />
-        <path
-          ref={needleRef}
-          d="M 100 100 L 100 35"
-          fill="none"
-          stroke="#f0f0f0"
-          strokeWidth="5"
-          strokeLinecap="round"
-        />
-        <circle cx="100" cy="100" r="12" fill="#111" />
-        <circle cx="100" cy="100" r="6" fill="#ddd" />
+    <div style={{ width: '200px', textAlign: 'center', fontFamily: 'monospace', color: '#ddd' }}>
+      {title && <div style={{fontSize: '12px', marginBottom: '4px', letterSpacing: '1px'}}>{title}</div>}
+      <svg width="210" height="190" viewBox="0 0 210 190" style={{filter: 'drop-shadow(0 0 12px ' + color + ')'}}>
+        {/* Background */}
+        <circle cx="105" cy="105" r="82" fill="none" stroke="#1a1a1a" strokeWidth="28" />
+        <circle cx="105" cy="105" r="82" fill="none" stroke="#222" strokeWidth="18" />
+        
+        {/* Tick marks */}
+        {Array.from({length: 21}, (_, i) => {
+          const tickAngle = -135 + (i * 13.5);
+          const rad = (tickAngle * Math.PI) / 180;
+          const x1 = 105 + Math.cos(rad) * 65;
+          const y1 = 105 + Math.sin(rad) * 65;
+          const x2 = 105 + Math.cos(rad) * 78;
+          const y2 = 105 + Math.sin(rad) * 78;
+          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#555" strokeWidth={i % 2 === 0 ? 3 : 1.5} />;
+        })}
+        
+        {/* Colored arc */}
+        <path d="M 40 145 A 78 78 0 0 1 170 145" fill="none" stroke={color} strokeWidth="12" strokeLinecap="round" />
+        
+        {/* Needle */}
+        <g>
+          <path
+            ref={needleRef}
+            d="M 105 105 L 105 32"
+            fill="none"
+            stroke="#f8f8f8"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+          <circle cx="105" cy="105" r="14" fill="#111" />
+          <circle cx="105" cy="105" r="7" fill="#f8f8f8" />
+        </g>
       </svg>
-      <div style={{ marginTop: '-15px', color: '#ccc', fontSize: '13px' }}>
-        {label}
-        <span style={{ color, marginLeft: '8px', fontWeight: 'bold' }}>
-          {Math.round(normalized)}{unit}
-        </span>
+      <div style={{ marginTop: '-18px', fontSize: '14px', fontWeight: 'bold' }}>
+        {label} <span style={{ color }}>{Math.round(normalized)}{unit}</span>
       </div>
     </div>
   );
