@@ -1,1 +1,1 @@
-/* FULL RETRO VERSION WITH ALL SLIDERS - to be generated */
+// TODO: Full retro UI with L/R independent controls - to be implemented properly
