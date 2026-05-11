@@ -28,7 +28,11 @@ jobs:
             # Убиваем PM2 и запускаем заново, чтобы исключить кэширование в памяти
             pm2 delete synth-generator || true
             pm2 flush
-            pm2 serve dist 4173 --name "synth-generator" --spa
+            # Используем npx serve для гарантированного запуска SPA на нужном порту
+            pm2 start "npx serve -s dist -l 4173" --name "synth-generator"
             pm2 save
+            # Ждем пару секунд и проверяем, отвечает ли порт
+            sleep 5
+            curl -I http://127.0.0.1:4173
             # Проверка
             pm2 status
