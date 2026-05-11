@@ -27,6 +27,6 @@ jobs:
             ls -la dist
             # Перезапуск на порту 4173, который ждет Nginx
             pm2 delete synth-generator || true
-            pm2 serve dist 4173 --name "synth-generator" --spa --hostname 127.0.0.1
+            pm2 serve dist 4173 --name "synth-generator" --spa
             # Проверка
             pm2 status
