@@ -12,6 +12,8 @@ let globalReverbWetGain: GainNode | null = null;
 let globalReverbDryGain: GainNode | null = null;
 let currentReverbConfigString: string = "";
 let analyzerNode: AnalyserNode | null = null;
+let analyzerL: AnalyserNode | null = null;
+let analyzerR: AnalyserNode | null = null;
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -35,6 +37,21 @@ export function getAnalyzer(): AnalyserNode | null {
     analyzerNode.fftSize = 2048;
   }
   return analyzerNode;
+}
+
+export function getStereoAnalyzers(): { L: AnalyserNode; R: AnalyserNode } | null {
+  const c = getCtx();
+  if (!c) return null;
+  if (!analyzerL || !analyzerR) {
+    analyzerL = c.createAnalyser();
+    analyzerL.fftSize = 512;
+    analyzerL.smoothingTimeConstant = 0.5;
+
+    analyzerR = c.createAnalyser();
+    analyzerR.fftSize = 512;
+    analyzerR.smoothingTimeConstant = 0.5;
+  }
+  return { L: analyzerL, R: analyzerR };
 }
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -1676,7 +1693,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   const decaySec   = options.decaySec   ?? preset?.decaySec   ?? 0;
   const sustainRatio = options.sustainRatio ?? preset?.sustainRatio ?? 1.0;
   const releaseSec = options.releaseSec ?? preset?.releaseSec ?? 0.8;
-  const peakGain   = (options.peakGain ?? 0.35) * (preset?.masterVolume ?? 1.0); // Increased from 0.18 to 0.35
+  const peakGain   = (options.peakGain ?? 0.6) * (preset?.masterVolume ?? 1.0); // Increased from 0.35 to 0.6
   const durationSec = options.durationSec ?? 8;
   const lowpassHz = options.lowpassHz ?? preset?.lowpassHz;
   const highpassHz = options.highpassHz ?? preset?.highpassHz;
@@ -1717,16 +1734,30 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
 
   // Setup Limiter/Compressor to prevent clipping
   const limiter = c.createDynamicsCompressor();
-  limiter.threshold.setValueAtTime(-3, now);
+  limiter.threshold.setValueAtTime(-12, now); // Catch peaks earlier
   limiter.knee.setValueAtTime(30, now);
   limiter.ratio.setValueAtTime(12, now);
   limiter.attack.setValueAtTime(0.003, now);
   limiter.release.setValueAtTime(0.25, now);
-  limiter.connect(c.destination);
+
+  // Final Boost (Make-up Gain) after compression
+  const finalBoost = c.createGain();
+  finalBoost.gain.setValueAtTime(2.0, now); // +6dB boost
+  limiter.connect(finalBoost);
+  finalBoost.connect(c.destination);
   
   const analyzer = getAnalyzer();
   if (analyzer) {
-    limiter.connect(analyzer);
+    finalBoost.connect(analyzer);
+  }
+
+  // Stereo Splitter for L/R metering
+  const stereoAnalyzers = getStereoAnalyzers();
+  if (stereoAnalyzers) {
+    const splitter = c.createChannelSplitter(2);
+    finalBoost.connect(splitter);
+    splitter.connect(stereoAnalyzers.L, 0);
+    splitter.connect(stereoAnalyzers.R, 1);
   }
 
   if (globalReverbInMix && globalReverbDryGain) {

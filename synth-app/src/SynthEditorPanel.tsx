@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import {
   playFrequency, stopFrequency, isAudioSupported, PRESETS,
   startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset,
-  getAnalyzer
+  getAnalyzer, getStereoAnalyzers
 } from "./frequency-synth";
 import type { SynthPreset, Harmonic, ReverbConfig } from "./frequency-synth";
 import AnalogNeedleGauge from "./AnalogNeedleGauge";
@@ -48,6 +48,10 @@ export default function SynthEditorPanel() {
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [analyzer, setAnalyzer] = useState<AnalyserNode | null>(null);
 
+  // Stereo Metering State
+  const [stereoL, setStereoL] = useState(0);
+  const [stereoR, setStereoR] = useState(0);
+
   const [testHz, setTestHz] = useState<number>(136.1);
   const [testLoop] = useState<boolean>(false);
   const [testDuration] = useState<number>(4.0);
@@ -58,6 +62,37 @@ export default function SynthEditorPanel() {
   useEffect(() => { 
     setSupported(isAudioSupported());
     setAnalyzer(getAnalyzer());
+
+    // Stereo Metering Loop
+    let animationId: number;
+    const updateMeters = () => {
+      animationId = requestAnimationFrame(updateMeters);
+      const stereoAnalyzers = getStereoAnalyzers();
+      if (stereoAnalyzers) {
+        const { L, R } = stereoAnalyzers;
+        const dataL = new Float32Array(L.fftSize);
+        const dataR = new Float32Array(R.fftSize);
+        L.getFloatTimeDomainData(dataL);
+        R.getFloatTimeDomainData(dataR);
+
+        // Calculate RMS (Root Mean Square)
+        let sumL = 0, sumR = 0;
+        for (let i = 0; i < dataL.length; i++) {
+          sumL += dataL[i] * dataL[i];
+          sumR += dataR[i] * dataR[i];
+        }
+        
+        const rmsL = Math.sqrt(sumL / dataL.length);
+        const rmsR = Math.sqrt(sumR / dataR.length);
+
+        // Convert to percentage for gauge (rough mapping, RMS 0.5 is very loud)
+        setStereoL(Math.min(100, rmsL * 300));
+        setStereoR(Math.min(100, rmsR * 300));
+      }
+    };
+    updateMeters();
+
+    return () => cancelAnimationFrame(animationId);
   }, []);
 
   const [editedPreset, setEditedPreset] = useState<SynthPreset | null>(null);
@@ -301,7 +336,9 @@ export default function SynthEditorPanel() {
           
           {/* Top Bar: Visual Feedback */}
           <div style={{ background: colors.panel, padding: "24px", border: `1px solid ${colors.border}`, borderRadius: "12px", display: "flex", justifyContent: "space-around", alignItems: "center", gap: "20px" }}>
-            <AnalogNeedleGauge label="MASTER VOL" value={(volumes[activePresetKey] ?? 1) * 100} unit="%" color={colors.accent} />
+            
+            {/* Left Channel Monitor */}
+            <AnalogNeedleGauge label="LEFT CH" value={stereoL} unit="%" color={colors.accent} />
             
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
               <AudioVisualizer analyzer={analyzer} color={colors.accentCyan} height={80} />
@@ -316,7 +353,8 @@ export default function SynthEditorPanel() {
               </div>
             </div>
 
-            <AnalogNeedleGauge label="BASE FREQ" value={testHz} min={0} max={1000} unit="Hz" color={colors.accentCyan} />
+            {/* Right Channel Monitor */}
+            <AnalogNeedleGauge label="RIGHT CH" value={stereoR} unit="%" color={colors.accent} />
           </div>
 
           {/* Controls Grid */}
