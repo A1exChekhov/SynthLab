@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import {
   playFrequency, stopFrequency, isAudioSupported, PRESETS,
   startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset,
-  getAnalyzer, getStereoAnalyzers
+  getAnalyzer, getStereoAnalyzers, SYSTEM_CATEGORIES
 } from "./frequency-synth";
 import type { SynthPreset, Harmonic, ReverbConfig } from "./frequency-synth";
 import AnalogNeedleGauge from "./AnalogNeedleGauge";
@@ -92,7 +92,7 @@ export default function SynthEditorPanel() {
   const allPresets = { ...PRESETS, ...customPresets };
   
   const [activeGlobalTab, setActiveGlobalTab] = useState<"default" | "custom" | "systems">("default");
-  const [activeSystemId] = useState<string>("solfeggio");
+  const [activeSystemId, setActiveSystemId] = useState<string>("solfeggio");
 
   const presetKeys = Object.keys(allPresets);
   const filteredPresetKeys = presetKeys.filter(key => {
@@ -404,7 +404,7 @@ export default function SynthEditorPanel() {
 
   return (
     <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, padding: "24px", fontFamily: "monospace" }}>
-      <div style={{ maxWidth: "1400px", margin: "0 auto", display: "grid", gridTemplateColumns: "350px 1fr", gap: "24px" }}>
+      <div style={{ width: "100%", display: "grid", gridTemplateColumns: "350px 1fr", gap: "24px" }}>
         
         {/* Sidebar: Presets */}
         <div style={{ background: colors.panel, padding: "20px", border: `1px solid ${colors.border}`, borderRadius: "12px", display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -415,6 +415,18 @@ export default function SynthEditorPanel() {
             <button onClick={() => setActiveGlobalTab("custom")} style={buttonStyle(activeGlobalTab === "custom", colors.accent)}>USER</button>
             <button onClick={() => setActiveGlobalTab("systems")} style={buttonStyle(activeGlobalTab === "systems", colors.accentCyan)}>SYSTEM</button>
           </div>
+
+          {activeGlobalTab === "systems" && (
+            <select 
+              value={activeSystemId} 
+              onChange={e => setActiveSystemId(e.target.value)} 
+              style={{ ...inputStyle, width: "100%", fontSize: "14px", padding: "8px" }}
+            >
+              {Object.keys(SYSTEM_CATEGORIES).map(k => (
+                <option key={k} value={k}>{SYSTEM_CATEGORIES[k].name}</option>
+              ))}
+            </select>
+          )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "10px", maxHeight: "70vh", overflowY: "auto", paddingRight: "5px" }}>
             {filteredPresetKeys.map(renderPresetCard)}
@@ -490,6 +502,32 @@ export default function SynthEditorPanel() {
                    </div>
                 </div>
               </div>
+
+              {/* SEQUENCER (Moved to top row) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "16px", background: "linear-gradient(180deg, #1a1a15 0%, #12120d 100%)", borderRadius: "8px", border: "1px solid #443", flex: 1 }}>
+                 <h3 style={{ margin: 0, fontSize: "12px", color: colors.accentAmber }}>SEQUENCER (MEDITATION)</h3>
+                 <label style={{ display: "flex", gap: "8px", fontSize: "10px", color: colors.text, alignItems: "center" }}>
+                   <input type="checkbox" checked={editedPreset?.repeat?.enabled || false} onChange={e => updateRepeat("enabled", e.target.checked)} />
+                   ENABLE AUTO-PLAY
+                 </label>
+                 <div style={{ display: "flex", gap: "12px", opacity: editedPreset?.repeat?.enabled ? 1 : 0.3, pointerEvents: editedPreset?.repeat?.enabled ? "auto" : "none" }}>
+                   <Knob label="INTERVAL" value={editedPreset?.repeat?.intervalSec || 1} min={0.1} max={20} step={0.1} color={colors.accentAmber} onChange={(v: number) => updateRepeat("intervalSec", v)} />
+                   <Knob label="JITTER" value={editedPreset?.repeat?.timingJitterSec || 0} min={0} max={5} step={0.1} color={colors.accentAmber} onChange={(v: number) => updateRepeat("timingJitterSec", v)} />
+                   
+                   <div style={{ width: "1px", background: "#333", margin: "0 10px" }} />
+                   
+                   <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "center" }}>
+                     <label style={{ display: "flex", gap: "4px", fontSize: "8px", color: colors.textSecondary }}>
+                       <input type="checkbox" checked={editedPreset?.repeat?.doubleStrike?.enabled || false} onChange={e => updateRepeat("doubleStrike", { enabled: e.target.checked })} /> DUAL STRIKE
+                     </label>
+                     <div style={{ display: "flex", gap: "8px", opacity: editedPreset?.repeat?.doubleStrike?.enabled ? 1 : 0.3 }}>
+                       <Knob label="DELAY" value={editedPreset?.repeat?.doubleStrike?.delaySec || 0.1} min={0.01} max={1} step={0.01} color={colors.accentAmber} onChange={(v: number) => updateRepeat("doubleStrike", { delaySec: v })} />
+                       <Knob label="GAIN" value={editedPreset?.repeat?.doubleStrike?.gain || 0.5} min={0} max={1} step={0.01} color={colors.accentAmber} onChange={(v: number) => updateRepeat("doubleStrike", { gain: v })} />
+                     </div>
+                   </div>
+                 </div>
+              </div>
+
             </div>
 
             {/* CHANNEL STRIPS (Generators) */}
@@ -517,8 +555,9 @@ export default function SynthEditorPanel() {
               {/* HARMONIC CHANNELS */}
               {editedPreset?.harmonics.map((h, i) => (
                 <div key={i} style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", background: "linear-gradient(180deg, #151a20 0%, #0d1214 100%)", borderRadius: "8px", border: "1px solid #234", minWidth: "180px", alignItems: "center" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", width: "100%", borderBottom: `1px solid ${colors.accentCyan}`, paddingBottom: "4px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", width: "100%", borderBottom: `1px solid ${colors.accentCyan}`, paddingBottom: "4px", alignItems: "baseline" }}>
                      <h3 style={{ margin: 0, fontSize: "12px", color: colors.accentCyan }}>CH {i+1}</h3>
+                     <span style={{ fontSize: "10px", color: colors.accent }}>{h.absoluteHz ? h.absoluteHz : (testHz * h.multiple).toFixed(1)} Hz</span>
                      <button onClick={() => removeHarmonic(i)} style={{ background: "transparent", border: "none", color: "#f44", cursor: "pointer", fontSize: "12px" }}>✕</button>
                   </div>
                   
@@ -551,33 +590,6 @@ export default function SynthEditorPanel() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", minWidth: "60px", border: "1px dashed #345", borderRadius: "8px", cursor: "pointer" }} onClick={addHarmonic}>
                 <span style={{ color: colors.accentCyan, fontSize: "24px" }}>+</span>
               </div>
-            </div>
-
-            {/* SEQUENCER / MEDITATION ENGINE ROW */}
-            <div style={{ display: "flex", gap: "16px", padding: "16px", background: "linear-gradient(180deg, #1a1a15 0%, #12120d 100%)", borderRadius: "8px", border: "1px solid #443", marginTop: "10px" }}>
-               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                   <h3 style={{ margin: 0, fontSize: "12px", color: colors.accentAmber }}>SEQUENCER (MEDITATION)</h3>
-                   <label style={{ display: "flex", gap: "8px", fontSize: "10px", color: colors.text, alignItems: "center" }}>
-                     <input type="checkbox" checked={editedPreset?.repeat?.enabled || false} onChange={e => updateRepeat("enabled", e.target.checked)} />
-                     ENABLE AUTO-PLAY
-                   </label>
-                   <div style={{ display: "flex", gap: "12px", opacity: editedPreset?.repeat?.enabled ? 1 : 0.3, pointerEvents: editedPreset?.repeat?.enabled ? "auto" : "none" }}>
-                     <Knob label="INTERVAL" value={editedPreset?.repeat?.intervalSec || 1} min={0.1} max={20} step={0.1} color={colors.accentAmber} onChange={(v: number) => updateRepeat("intervalSec", v)} />
-                     <Knob label="JITTER" value={editedPreset?.repeat?.timingJitterSec || 0} min={0} max={5} step={0.1} color={colors.accentAmber} onChange={(v: number) => updateRepeat("timingJitterSec", v)} />
-                     
-                     <div style={{ width: "1px", background: "#333", margin: "0 10px" }} />
-                     
-                     <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "center" }}>
-                       <label style={{ display: "flex", gap: "4px", fontSize: "8px", color: colors.textSecondary }}>
-                         <input type="checkbox" checked={editedPreset?.repeat?.doubleStrike?.enabled || false} onChange={e => updateRepeat("doubleStrike", { enabled: e.target.checked })} /> DUAL STRIKE
-                       </label>
-                       <div style={{ display: "flex", gap: "8px", opacity: editedPreset?.repeat?.doubleStrike?.enabled ? 1 : 0.3 }}>
-                         <Knob label="DELAY" value={editedPreset?.repeat?.doubleStrike?.delaySec || 0.1} min={0.01} max={1} step={0.01} color={colors.accentAmber} onChange={(v: number) => updateRepeat("doubleStrike", { delaySec: v })} />
-                         <Knob label="GAIN" value={editedPreset?.repeat?.doubleStrike?.gain || 0.5} min={0} max={1} step={0.01} color={colors.accentAmber} onChange={(v: number) => updateRepeat("doubleStrike", { gain: v })} />
-                       </div>
-                     </div>
-                   </div>
-               </div>
             </div>
 
             {/* Action Bar */}
