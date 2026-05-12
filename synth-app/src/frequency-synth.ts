@@ -106,6 +106,7 @@ export type SynthPreset = {
   name?: string;
   baseHz?: number;
   masterVolume?: number;
+  outputGain?: number; // Post-limiter gain multiplier
   waveform: OscillatorType;
   harmonics: Harmonic[];
   auxTones?: Harmonic[];
@@ -1693,7 +1694,8 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   const decaySec   = options.decaySec   ?? preset?.decaySec   ?? 0;
   const sustainRatio = options.sustainRatio ?? preset?.sustainRatio ?? 1.0;
   const releaseSec = options.releaseSec ?? preset?.releaseSec ?? 0.8;
-  const peakGain   = (options.peakGain ?? 0.6) * (preset?.masterVolume ?? 1.0); // Increased from 0.35 to 0.6
+  const peakGain   = (options.peakGain ?? 1.0) * (preset?.masterVolume ?? 1.0); // Full raw volume
+  const outputGain = preset?.outputGain ?? 2.0; // Post-limiter hardware gain
   const durationSec = options.durationSec ?? 8;
   const lowpassHz = options.lowpassHz ?? preset?.lowpassHz;
   const highpassHz = options.highpassHz ?? preset?.highpassHz;
@@ -1740,9 +1742,9 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   limiter.attack.setValueAtTime(0.003, now);
   limiter.release.setValueAtTime(0.25, now);
 
-  // Final Boost (Make-up Gain) after compression
+  // Final Boost (Make-up Gain / Output Gain) after compression
   const finalBoost = c.createGain();
-  finalBoost.gain.setValueAtTime(2.0, now); // +6dB boost
+  finalBoost.gain.setValueAtTime(outputGain, now);
   limiter.connect(finalBoost);
   finalBoost.connect(c.destination);
   
