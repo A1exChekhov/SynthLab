@@ -28,8 +28,10 @@ jobs:
             # Убиваем PM2 и запускаем заново, чтобы исключить кэширование в памяти
             pm2 delete synth-generator || true
             pm2 flush
-            # Используем npx serve для гарантированного запуска SPA на нужном порту
-            pm2 start "npx serve -s dist -l 4173" --name "synth-generator"
+            # Проверка содержимого (для логов)
+            ls -la dist
+            # Используем абсолютный путь для npx serve
+            pm2 start "npx serve -s /var/www/SynthLab/synth-app/dist -l 4173" --name "synth-generator"
             pm2 save
             # Ждем пару секунд и проверяем, отвечает ли порт
             sleep 5
