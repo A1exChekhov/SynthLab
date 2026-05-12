@@ -4,6 +4,7 @@ let ctx: AudioContext | null = null;
 let activeOscillators: OscillatorNode[] = [];
 let activeGains: GainNode[] = [];
 let activeNodes: AudioNode[] = [];
+let activeFinalBoosts: GainNode[] = [];
 let activeStopTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Global Reverb Bus
@@ -1671,6 +1672,16 @@ export function stopFrequency(): void {
   activeOscillators = [];
   activeGains = [];
   activeNodes = [];
+  activeFinalBoosts = [];
+}
+
+export function updateActiveOutputGain(gain: number): void {
+  const c = ctx;
+  if (!c) return;
+  const now = c.currentTime;
+  activeFinalBoosts.forEach(g => {
+    try { g.gain.setTargetAtTime(gain, now, 0.05); } catch {}
+  });
 }
 
 export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
@@ -1747,6 +1758,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   finalBoost.gain.setValueAtTime(outputGain, now);
   limiter.connect(finalBoost);
   finalBoost.connect(c.destination);
+  activeFinalBoosts.push(finalBoost);
   
   const analyzer = getAnalyzer();
   if (analyzer) {
@@ -1987,8 +1999,9 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   // Auto-cleanup for overlapping notes
   if (options.overlap && !loop) {
     setTimeout(() => {
-      // Memory cleanup: we don't clear the arrays entirely because other overlapping notes might be active,
-      // but in a perfect world we'd filter them. Since GC cleans up disconnected nodes anyway, we just let them decay.
+      // Memory cleanup for final boost
+      const idx = activeFinalBoosts.indexOf(finalBoost);
+      if (idx !== -1) activeFinalBoosts.splice(idx, 1);
     }, (durationSec + releaseSec + 0.5) * 1000);
   }
 

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import {
   playFrequency, stopFrequency, isAudioSupported, PRESETS,
   startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset,
-  getAnalyzer, getStereoAnalyzers, SYSTEM_CATEGORIES
+  getAnalyzer, getStereoAnalyzers, SYSTEM_CATEGORIES, updateActiveOutputGain
 } from "./frequency-synth";
 import type { SynthPreset, Harmonic, ReverbConfig } from "./frequency-synth";
 import AnalogNeedleGauge from "./AnalogNeedleGauge";
@@ -422,8 +422,8 @@ export default function SynthEditorPanel() {
               onChange={e => setActiveSystemId(e.target.value)} 
               style={{ ...inputStyle, width: "100%", fontSize: "14px", padding: "8px" }}
             >
-              {Object.keys(SYSTEM_CATEGORIES).map(k => (
-                <option key={k} value={k}>{SYSTEM_CATEGORIES[k].name}</option>
+              {SYSTEM_CATEGORIES.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.label}</option>
               ))}
             </select>
           )}
@@ -471,7 +471,10 @@ export default function SynthEditorPanel() {
                 <h3 style={{ margin: 0, fontSize: "12px", color: colors.accent, borderBottom: `1px solid ${colors.accent}`, paddingBottom: "4px", width: "100%", textAlign: "center" }}>MASTER</h3>
                 <VerticalFader 
                   label="OUTPUT GAIN" value={editedPreset?.outputGain ?? 2.0} min={0.1} max={10.0} step={0.1} unit="x" color={colors.accent} height={120}
-                  onChange={(v: number) => updateGlobal("outputGain", v)} 
+                  onChange={(v: number) => {
+                    updateActiveOutputGain(v);
+                    updateGlobal("outputGain", v);
+                  }} 
                 />
               </div>
 
