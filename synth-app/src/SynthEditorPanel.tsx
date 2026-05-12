@@ -29,8 +29,8 @@ function saveCustomPresets(p: Record<string, SynthPreset>) {
 
 const VerticalFader = ({ label, value, min, max, step, onChange, unit, color, height = 150 }: any) => {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "40px" }}>
-      <div style={{ fontSize: "10px", color: color, fontFamily: "monospace", textShadow: `0 0 5px ${color}` }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "50px" }}>
+      <div style={{ fontSize: "13px", color: color, fontFamily: "monospace", fontWeight: "bold", textShadow: `0 0 5px ${color}` }}>
         {Number(value).toFixed(step < 1 ? 2 : 0)}{unit}
       </div>
       <div style={{ position: "relative", height: `${height}px`, width: "20px", background: "#111", borderRadius: "4px", border: "1px solid #333", display: "flex", justifyContent: "center" }}>
@@ -62,7 +62,7 @@ const VerticalFader = ({ label, value, min, max, step, onChange, unit, color, he
           boxShadow: `0 0 5px ${color}`
         }} />
       </div>
-      <div style={{ fontSize: "9px", color: "#888", textAlign: "center", fontWeight: "bold", lineHeight: "1.1" }}>
+      <div style={{ fontSize: "11px", color: "#aaa", textAlign: "center", fontWeight: "bold", lineHeight: "1.2" }}>
         {label.split(' ').map((l: string, i: number) => <div key={i}>{l}</div>)}
       </div>
     </div>
@@ -71,16 +71,16 @@ const VerticalFader = ({ label, value, min, max, step, onChange, unit, color, he
 
 const Knob = ({ label, value, min, max, step, onChange, color }: any) => {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", width: "36px" }}>
-      <div style={{ fontSize: "8px", color: color, fontFamily: "monospace" }}>{Number(value).toFixed(step < 1 ? 2 : 0)}</div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", width: "44px" }}>
+      <div style={{ fontSize: "11px", color: color, fontFamily: "monospace", fontWeight: "bold" }}>{Number(value).toFixed(step < 1 ? 2 : 0)}</div>
       <input 
         type="range" 
         min={min} max={max} step={step} 
         value={value} 
         onChange={e => onChange(Number(e.target.value))}
-        style={{ width: "30px", accentColor: color }}
+        style={{ width: "36px", accentColor: color }}
       />
-      <div style={{ fontSize: "8px", color: "#888", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
+      <div style={{ fontSize: "10px", color: "#aaa", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>
         {label}
       </div>
     </div>
@@ -499,15 +499,39 @@ export default function SynthEditorPanel() {
                 <div style={{ width: "1px", background: "#333", margin: "0 10px" }} />
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                    <h3 style={{ margin: 0, fontSize: "12px", color: colors.accentAmber }}>FILTERS & SPATIAL</h3>
-                   <div style={{ display: "flex", gap: "12px" }}>
+                   <div style={{ display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" }}>
                      <Knob label="LPF HZ" value={editedPreset?.lowpassHz || 20000} min={200} max={20000} step={100} color={colors.accentAmber} onChange={(v: number) => updateGlobal("lowpassHz", v)} />
                      <Knob label="HPF HZ" value={editedPreset?.highpassHz || 20} min={20} max={5000} step={10} color={colors.accentAmber} onChange={(v: number) => updateGlobal("highpassHz", v)} />
                      <Knob label="SPREAD" value={editedPreset?.stereoSpread || 0} min={0} max={1} step={0.01} color={colors.text} onChange={(v: number) => updateGlobal("stereoSpread", v)} />
-                     <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "9px", color: colors.textSecondary, marginLeft: "10px" }}>
+                     <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px", color: colors.textSecondary, marginLeft: "10px" }}>
+                        WAVEFORM
+                        <select value={editedPreset?.waveform || "sine"} onChange={e => updateGlobal("waveform", e.target.value)} style={{ ...inputStyle, width: "90px", fontSize: "11px", padding: "3px" }}>
+                          <option value="sine">SINE</option>
+                          <option value="triangle">TRIANGLE</option>
+                          <option value="sawtooth">SAWTOOTH</option>
+                          <option value="square">SQUARE</option>
+                        </select>
+                     </label>
+                     <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px", color: colors.textSecondary, marginLeft: "10px" }}>
                         PAN TYPE
-                        <select value={editedPreset?.pannerType || "stereo"} onChange={e => updateGlobal("pannerType", e.target.value)} style={{ ...inputStyle, width: "80px", fontSize: "9px", padding: "2px" }}>
+                        <select value={editedPreset?.pannerType || "stereo"} onChange={e => updateGlobal("pannerType", e.target.value)} style={{ ...inputStyle, width: "90px", fontSize: "11px", padding: "3px" }}>
                           <option value="stereo">STEREO</option>
                           <option value="3d">3D SPATIAL</option>
+                        </select>
+                     </label>
+                     <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px", color: colors.textSecondary, marginLeft: "10px" }}>
+                        TEMPLATE
+                        <select value="" onChange={e => {
+                          if (!e.target.value || !editedPreset) return;
+                          const tpl = allPresets[e.target.value];
+                          if (!tpl) return;
+                          const preserved = { name: editedPreset.name, baseHz: editedPreset.baseHz, systemId: editedPreset.systemId };
+                          setEditedPreset({ ...JSON.parse(JSON.stringify(tpl)), ...preserved });
+                        }} style={{ ...inputStyle, width: "130px", fontSize: "11px", padding: "3px" }}>
+                          <option value="">-- Select --</option>
+                          {Object.keys(PRESETS).filter(k => DEFAULT_PRESET_KEYS.has(k)).map(k => (
+                            <option key={k} value={k}>{PRESETS[k].name ?? k}</option>
+                          ))}
                         </select>
                      </label>
                    </div>
@@ -528,7 +552,7 @@ export default function SynthEditorPanel() {
                    <div style={{ width: "1px", background: "#333", margin: "0 10px" }} />
                    
                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "center" }}>
-                     <label style={{ display: "flex", gap: "4px", fontSize: "8px", color: colors.textSecondary }}>
+                     <label style={{ display: "flex", gap: "4px", fontSize: "10px", color: colors.textSecondary }}>
                        <input type="checkbox" checked={editedPreset?.repeat?.doubleStrike?.enabled || false} onChange={e => updateRepeat("doubleStrike", { enabled: e.target.checked })} /> DUAL STRIKE
                      </label>
                      <div style={{ display: "flex", gap: "8px", opacity: editedPreset?.repeat?.doubleStrike?.enabled ? 1 : 0.3 }}>
@@ -547,9 +571,9 @@ export default function SynthEditorPanel() {
               {/* NOISE BURST (IMPACT) CHANNEL */}
               <div style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "16px", background: "linear-gradient(180deg, #1a1515 0%, #120d0d 100%)", borderRadius: "8px", border: "1px solid #422", minWidth: "160px", alignItems: "center" }}>
                 <h3 style={{ margin: 0, fontSize: "12px", color: "#f44", borderBottom: `1px solid #f44`, paddingBottom: "4px", width: "100%", textAlign: "center" }}>IMPACT (NOISE)</h3>
-                <label style={{ display: "flex", gap: "4px", fontSize: "9px", color: colors.textSecondary, width: "100%", justifyContent: "space-between" }}>
+                <label style={{ display: "flex", gap: "4px", fontSize: "11px", color: colors.textSecondary, width: "100%", justifyContent: "space-between" }}>
                   TYPE:
-                  <select value={editedPreset?.noiseBurst?.type || "pink"} onChange={e => updateNoiseBurst("type", e.target.value)} style={{ ...inputStyle, width: "60px", fontSize: "9px", padding: "2px" }}>
+                  <select value={editedPreset?.noiseBurst?.type || "pink"} onChange={e => updateNoiseBurst("type", e.target.value)} style={{ ...inputStyle, width: "70px", fontSize: "11px", padding: "2px" }}>
                     <option value="white">WHITE</option>
                     <option value="pink">PINK</option>
                     <option value="brown">BROWN</option>
@@ -567,17 +591,17 @@ export default function SynthEditorPanel() {
               {editedPreset?.harmonics.map((h, i) => (
                 <div key={i} style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", background: "linear-gradient(180deg, #151a20 0%, #0d1214 100%)", borderRadius: "8px", border: "1px solid #234", minWidth: "180px", alignItems: "center" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", width: "100%", borderBottom: `1px solid ${colors.accentCyan}`, paddingBottom: "4px", alignItems: "baseline" }}>
-                     <h3 style={{ margin: 0, fontSize: "12px", color: colors.accentCyan }}>CH {i+1}</h3>
-                     <span style={{ fontSize: "10px", color: colors.accent }}>{h.absoluteHz ? h.absoluteHz : (testHz * h.multiple).toFixed(1)} Hz</span>
+                     <h3 style={{ margin: 0, fontSize: "13px", color: colors.accentCyan }}>CH {i+1}</h3>
+                     <span style={{ fontSize: "12px", color: colors.accent, fontWeight: "bold" }}>{h.absoluteHz ? h.absoluteHz : (testHz * h.multiple).toFixed(1)} Hz</span>
                      <button onClick={() => removeHarmonic(i)} style={{ background: "transparent", border: "none", color: "#f44", cursor: "pointer", fontSize: "12px" }}>✕</button>
                   </div>
                   
                   <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "100%" }}>
-                    <label style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: colors.textSecondary }}>
-                      MULT: <input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value)} style={{ ...inputStyle, width: "60px", fontSize: "9px", padding: "2px" }} />
+                    <label style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: colors.textSecondary }}>
+                      MULT: <input type="number" step="0.01" value={h.multiple} onChange={e => updateHarmonic(i, "multiple", e.target.value)} style={{ ...inputStyle, width: "65px", fontSize: "11px", padding: "2px" }} />
                     </label>
-                    <label style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: colors.textSecondary }}>
-                      ABS HZ: <input type="number" step="1" value={h.absoluteHz || 0} onChange={e => updateHarmonic(i, "absoluteHz", e.target.value)} style={{ ...inputStyle, width: "60px", fontSize: "9px", padding: "2px" }} />
+                    <label style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: colors.textSecondary }}>
+                      ABS HZ: <input type="number" step="1" value={h.absoluteHz || 0} onChange={e => updateHarmonic(i, "absoluteHz", e.target.value)} style={{ ...inputStyle, width: "65px", fontSize: "11px", padding: "2px" }} />
                     </label>
                   </div>
 
