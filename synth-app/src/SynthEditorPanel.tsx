@@ -266,13 +266,13 @@ export default function SynthEditorPanel() {
     }
   };
 
-  const updateGlobal = (field: keyof SynthPreset, value: any) => {
+  const updateGlobal = (field: keyof SynthPreset, value: any, skipRestart: boolean = false) => {
     if (!editedPreset) return;
     const newPreset = { ...editedPreset };
     if (value === "" || value === undefined) delete newPreset[field];
     else newPreset[field] = value as never;
     setEditedPreset(newPreset);
-    triggerRestart(newPreset);
+    if (!skipRestart) triggerRestart(newPreset);
   };
 
   const updateHarmonic = (index: number, field: keyof Harmonic, value: any) => {
@@ -417,15 +417,23 @@ export default function SynthEditorPanel() {
           </div>
 
           {activeGlobalTab === "systems" && (
-            <select 
-              value={activeSystemId} 
-              onChange={e => setActiveSystemId(e.target.value)} 
-              style={{ ...inputStyle, width: "100%", fontSize: "14px", padding: "8px" }}
-            >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
               {SYSTEM_CATEGORIES.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.label}</option>
+                <button 
+                  key={cat.id} 
+                  onClick={() => setActiveSystemId(cat.id)}
+                  style={{
+                    ...buttonStyle(activeSystemId === cat.id, colors.accentCyan),
+                    fontSize: "10px",
+                    padding: "4px 8px",
+                    flex: "1 1 auto",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {cat.label}
+                </button>
               ))}
-            </select>
+            </div>
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "10px", maxHeight: "70vh", overflowY: "auto", paddingRight: "5px" }}>
@@ -473,7 +481,7 @@ export default function SynthEditorPanel() {
                   label="OUTPUT GAIN" value={editedPreset?.outputGain ?? 2.0} min={0.1} max={10.0} step={0.1} unit="x" color={colors.accent} height={120}
                   onChange={(v: number) => {
                     updateActiveOutputGain(v);
-                    updateGlobal("outputGain", v);
+                    updateGlobal("outputGain", v, true);
                   }} 
                 />
               </div>
