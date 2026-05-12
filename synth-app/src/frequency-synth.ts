@@ -1660,11 +1660,6 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   if (!c) return false;
   if (c.state === "suspended") void c.resume();
 
-  const analyzer = getAnalyzer();
-  if (analyzer) {
-    // We connect the destination to analyzer in setup
-  }
-
   if (!options.overlap) {
     stopFrequency();
   }
@@ -1718,6 +1713,8 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   setupGlobalReverb(c, reverbConfig);
 
   // Filter chain logic
+  let outputNode: AudioNode = c.destination;
+
   // Setup Limiter/Compressor to prevent clipping
   const limiter = c.createDynamicsCompressor();
   limiter.threshold.setValueAtTime(-3, now);
@@ -1882,7 +1879,6 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
 
       // Support for independent L/R gain (Dual Volume)
       if (h.gainL !== undefined && h.gainR !== undefined) {
-        const totalGain = (h.gainL + h.gainR) / 2;
         // Adjust the master harmonic gain if L/R are set
         // Total gain for the path will be (peakGain * totalGain * gainRatio)
         // This effectively makes gainRatio a master for that harmonic.

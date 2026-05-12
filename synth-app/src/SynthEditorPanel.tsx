@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import {
   playFrequency, stopFrequency, isAudioSupported, PRESETS,
   startSequence, stopSequence, isSequencePlaying, stopAllSequences, updateSequencePreset,
-  SYSTEM_CATEGORIES, clearAudioCache, getAnalyzer
+  getAnalyzer
 } from "./frequency-synth";
-import type { SynthPreset, Harmonic, NoiseBurst, ReverbConfig } from "./frequency-synth";
+import type { SynthPreset, Harmonic, ReverbConfig } from "./frequency-synth";
 import AnalogNeedleGauge from "./AnalogNeedleGauge";
 import AudioVisualizer from "./AudioVisualizer";
 
@@ -30,7 +30,7 @@ export default function SynthEditorPanel() {
   const allPresets = { ...PRESETS, ...customPresets };
   
   const [activeGlobalTab, setActiveGlobalTab] = useState<"default" | "custom" | "systems">("default");
-  const [activeSystemId, setActiveSystemId] = useState<string>("solfeggio");
+  const [activeSystemId] = useState<string>("solfeggio");
 
   const presetKeys = Object.keys(allPresets);
   const filteredPresetKeys = presetKeys.filter(key => {
@@ -49,8 +49,8 @@ export default function SynthEditorPanel() {
   const [analyzer, setAnalyzer] = useState<AnalyserNode | null>(null);
 
   const [testHz, setTestHz] = useState<number>(136.1);
-  const [testLoop, setTestLoop] = useState<boolean>(false);
-  const [testDuration, setTestDuration] = useState<number>(4.0);
+  const [testLoop] = useState<boolean>(false);
+  const [testDuration] = useState<number>(4.0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
   const [supported, setSupported] = useState(true);
@@ -61,16 +61,6 @@ export default function SynthEditorPanel() {
   }, []);
 
   const [editedPreset, setEditedPreset] = useState<SynthPreset | null>(null);
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>("");
-
-  const toggleGroup = (group: string) => {
-    setCollapsedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
-      return next;
-    });
-  };
 
   useEffect(() => {
     const p = allPresets[activePresetKey];
@@ -134,14 +124,6 @@ export default function SynthEditorPanel() {
     setActivePresetKey(key);
   };
 
-  const deleteCustom = (key: string) => {
-    const updated = { ...customPresets };
-    delete updated[key];
-    setCustomPresets(updated);
-    saveCustomPresets(updated);
-    if (activePresetKey === key) setActivePresetKey(presetKeys[0] ?? "");
-  };
-
   const updateCustomPreset = () => {
     if (!editedPreset) return;
     let finalPreset = { ...editedPreset };
@@ -150,32 +132,6 @@ export default function SynthEditorPanel() {
     const updated = { ...customPresets, [activePresetKey]: finalPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
-  };
-
-  const applyTemplate = (templateKey: string) => {
-    if (!editedPreset || !templateKey) return;
-    const template = PRESETS[templateKey];
-    if (!template) return;
-    const newPreset = {
-      ...editedPreset,
-      waveform: template.waveform,
-      harmonics: JSON.parse(JSON.stringify(template.harmonics)),
-      auxTones: template.auxTones ? JSON.parse(JSON.stringify(template.auxTones)) : undefined,
-      attackSec: template.attackSec,
-      decaySec: template.decaySec,
-      sustainRatio: template.sustainRatio,
-      releaseSec: template.releaseSec,
-      masterVolume: template.masterVolume ?? 1.0,
-      highpassHz: template.highpassHz ?? undefined,
-      lowpassHz: template.lowpassHz ?? undefined,
-      stereoSpread: template.stereoSpread ?? 0,
-      reverb: template.reverb ? JSON.parse(JSON.stringify(template.reverb)) : undefined,
-      noiseBurst: template.noiseBurst ? JSON.parse(JSON.stringify(template.noiseBurst)) : undefined,
-      repeat: template.repeat ? JSON.parse(JSON.stringify(template.repeat)) : undefined,
-    };
-    setEditedPreset(newPreset);
-    triggerRestart(newPreset);
-    setSelectedTemplateKey(templateKey);
   };
 
   const handlePlay = () => {
@@ -231,6 +187,14 @@ export default function SynthEditorPanel() {
     triggerRestart(newPreset);
   };
 
+  const removeHarmonic = (index: number) => {
+    if (!editedPreset) return;
+    const newHarmonics = editedPreset.harmonics.filter((_, i) => i !== index);
+    const newPreset = { ...editedPreset, harmonics: newHarmonics };
+    setEditedPreset(newPreset);
+    triggerRestart(newPreset);
+  };
+
   const updateReverb = (field: keyof ReverbConfig, value: any) => {
     if (!editedPreset) return;
     let newReverb: ReverbConfig = editedPreset.reverb ? { ...editedPreset.reverb } : { wet: 0, decaySec: 4.0, preDelayMs: 20 };
@@ -246,7 +210,9 @@ export default function SynthEditorPanel() {
     panel: "rgba(20, 20, 30, 0.9)",
     accent: "#ff2a6d",
     accentCyan: "#05d9e8",
+    accentAmber: "#ffb347",
     text: "#e0e0e0",
+    textSecondary: "#8a8a8a",
     border: "#333344"
   };
 
