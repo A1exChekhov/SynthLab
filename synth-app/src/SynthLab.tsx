@@ -90,7 +90,7 @@ my_custom_preset: {
 
   return (
     <div style={{ padding: "30px", background: "#0a0a0f", color: "#e0d6c8", fontFamily: "monospace", minHeight: "100vh" }}>
-      <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+      <div style={{ width: "100%" }}>
         
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #333", paddingBottom: "20px", marginBottom: "20px" }}>
           <h2>Лаборатория Синтеза</h2>

@@ -16,12 +16,27 @@ let analyzerNode: AnalyserNode | null = null;
 let analyzerL: AnalyserNode | null = null;
 let analyzerR: AnalyserNode | null = null;
 
+export let globalMasterVolume = 0.5; // DEFAULT 50% Volume
+export let masterGainNode: GainNode | null = null;
+
+export function setGlobalVolume(v: number) {
+  globalMasterVolume = v;
+  if (masterGainNode) {
+    masterGainNode.gain.setTargetAtTime(v, getCtx()?.currentTime || 0, 0.05);
+  }
+}
+
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (ctx) return ctx;
   const Ctor = window.AudioContext || (window as any).webkitAudioContext;
   if (!Ctor) return null;
   ctx = new Ctor();
+  
+  masterGainNode = ctx.createGain();
+  masterGainNode.gain.value = globalMasterVolume;
+  masterGainNode.connect(ctx.destination);
+  
   return ctx;
 }
 
@@ -61,6 +76,7 @@ export type Harmonic = {
   multiple: number;
   gainRatio: number;
   waveform?: OscillatorType;
+  delaySec?: number;      // New: Independent start time for each overtone
   attackSec?: number;
   decaySec?: number;      // New: for bell-like hits
   sustainRatio?: number;  // New: 0 to 1
@@ -77,6 +93,7 @@ export type Harmonic = {
 
 export type NoiseBurst = {
   type: "white" | "pink";
+  delaySec?: number; // New: for multiple impacts
   attackSec: number;
   decaySec: number;
   bandpassHz?: number;
@@ -118,7 +135,7 @@ export type SynthPreset = {
   lowpassHz?: number;
   highpassHz?: number;
   stereoSpread?: number;
-  noiseBurst?: NoiseBurst;
+  noiseBurst?: NoiseBurst | NoiseBurst[];
   reverb?: ReverbConfig;
   repeat?: RepeatConfig;
   sampleUrl?: string;
@@ -1545,7 +1562,7 @@ export type PlayOptions = {
   lowpassHz?: number;
   highpassHz?: number;
   stereoSpread?: number;
-  noiseBurst?: NoiseBurst;
+  noiseBurst?: NoiseBurst | NoiseBurst[];
   reverb?: ReverbConfig;
   overlap?: boolean;
   gainMultiplier?: number;
@@ -1630,7 +1647,7 @@ function setupGlobalReverb(c: AudioContext, config: ReverbConfig | undefined) {
   globalReverbInMix = c.createGain();
   globalReverbDryGain = c.createGain();
   globalReverbDryGain.gain.value = 1.0 - config.wet;
-  globalReverbDryGain.connect(c.destination);
+  globalReverbDryGain.connect(masterGainNode!);
 
   const preDelay = c.createDelay();
   preDelay.delayTime.value = (config.preDelayMs || 0) / 1000;
@@ -1644,7 +1661,7 @@ function setupGlobalReverb(c: AudioContext, config: ReverbConfig | undefined) {
   globalReverbInMix.connect(preDelay);
   preDelay.connect(convolver);
   convolver.connect(globalReverbWetGain);
-  globalReverbWetGain.connect(c.destination);
+  globalReverbWetGain.connect(masterGainNode!);
 
   currentReverbConfigString = configStr;
 }
@@ -1705,8 +1722,8 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   const decaySec   = options.decaySec   ?? preset?.decaySec   ?? 0;
   const sustainRatio = options.sustainRatio ?? preset?.sustainRatio ?? 1.0;
   const releaseSec = options.releaseSec ?? preset?.releaseSec ?? 0.8;
-  const peakGain   = (options.peakGain ?? 1.0) * (preset?.masterVolume ?? 1.0); // Full raw volume
-  const outputGain = preset?.outputGain ?? 2.0; // Post-limiter hardware gain
+  const peakGain   = (options.peakGain ?? 0.8) * (preset?.masterVolume ?? 1.0); // Safe raw volume
+  const outputGain = preset?.outputGain ?? 1.0; // Safe post-limiter hardware gain
   const durationSec = options.durationSec ?? 8;
   const lowpassHz = options.lowpassHz ?? preset?.lowpassHz;
   const highpassHz = options.highpassHz ?? preset?.highpassHz;
@@ -1731,7 +1748,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
       env.gain.value = 0;
       env.gain.linearRampToValueAtTime(peakGain, c.currentTime + attackSec);
       src.connect(env);
-      env.connect(c.destination);
+      env.connect(masterGainNode!);
       src.start(c.currentTime);
       activeGains.push(env);
       activeNodes.push(src as any);
@@ -1743,33 +1760,33 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   setupGlobalReverb(c, reverbConfig);
 
   // Filter chain logic
-  let outputNode: AudioNode = c.destination;
+  let outputNode: AudioNode = masterGainNode!;
 
-  // Setup Limiter/Compressor to prevent clipping
+  // Setup Limiter/Compressor right before c.destination to prevent any clipping
   const limiter = c.createDynamicsCompressor();
-  limiter.threshold.setValueAtTime(-12, now); // Catch peaks earlier
-  limiter.knee.setValueAtTime(30, now);
-  limiter.ratio.setValueAtTime(12, now);
+  limiter.threshold.setValueAtTime(-1.0, now); // Prevent clipping (max -1dB headroom)
+  limiter.knee.setValueAtTime(10, now);
+  limiter.ratio.setValueAtTime(20, now); // Act as a brickwall limiter
   limiter.attack.setValueAtTime(0.003, now);
-  limiter.release.setValueAtTime(0.25, now);
+  limiter.release.setValueAtTime(0.1, now);
+  limiter.connect(masterGainNode!);
 
-  // Final Boost (Make-up Gain / Output Gain) after compression
+  // Final Boost (Make-up Gain / Output Gain) before limiter
   const finalBoost = c.createGain();
   finalBoost.gain.setValueAtTime(outputGain, now);
-  limiter.connect(finalBoost);
-  finalBoost.connect(c.destination);
+  finalBoost.connect(limiter);
   activeFinalBoosts.push(finalBoost);
   
   const analyzer = getAnalyzer();
   if (analyzer) {
-    finalBoost.connect(analyzer);
+    limiter.connect(analyzer);
   }
 
   // Stereo Splitter for L/R metering
   const stereoAnalyzers = getStereoAnalyzers();
   if (stereoAnalyzers) {
     const splitter = c.createChannelSplitter(2);
-    finalBoost.connect(splitter);
+    limiter.connect(splitter);
     splitter.connect(stereoAnalyzers.L, 0);
     splitter.connect(stereoAnalyzers.R, 1);
   }
@@ -1782,13 +1799,13 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
     activeNodes.push(splitMix);
     
     globalReverbDryGain.disconnect();
-    globalReverbDryGain.connect(limiter);
+    globalReverbDryGain.connect(finalBoost);
     globalReverbWetGain?.disconnect();
-    globalReverbWetGain?.connect(limiter);
+    globalReverbWetGain?.connect(finalBoost);
   } else {
-    // If no reverb, connect output to limiter
+    // If no reverb, connect output to finalBoost
     const mainBus = c.createGain();
-    mainBus.connect(limiter);
+    mainBus.connect(finalBoost);
     outputNode = mainBus;
     activeNodes.push(mainBus);
   }
@@ -1816,11 +1833,14 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   // 2. Harmonics and Aux Tones (Oscillators)
   const allTones = [...harmonics, ...auxTones];
   allTones.forEach((h, i) => {
-    const pAttack  = h.attackSec  ?? attackSec;
-    const pDecay   = h.decaySec   ?? decaySec;
-    const pSustain = h.sustainRatio ?? sustainRatio;
-    const pRelease = h.releaseSec ?? releaseSec;
+    const pAttack  = Math.max(0.001, h.attackSec  ?? attackSec);
+    const pDecay   = Math.max(0.001, h.decaySec   ?? decaySec);
+    const pSustain = Math.max(0, h.sustainRatio ?? sustainRatio);
+    const pRelease = Math.max(0.001, h.releaseSec ?? releaseSec);
     const targetGain = peakGain * h.gainRatio * (options.gainMultiplier || 1);
+
+    const hDelay = (typeof h.delaySec === 'number' && !isNaN(h.delaySec)) ? h.delaySec : 0;
+    const startTime = now + Math.max(0, hDelay);
 
     const createOscPath = (freq: number, panVal: number) => {
       const osc = c.createOscillator();
@@ -1842,8 +1862,6 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
       const panner = c.createStereoPanner();
       panner.pan.value = Math.max(-1, Math.min(1, panVal));
       envGain.connect(panner);
-
-      // let finalOutput: AudioNode = panner;
 
       if (pannerType === "3d") {
         // Replace or wrap with 3D Panner
@@ -1872,20 +1890,18 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
         panner.connect(p3d);
         p3d.connect(outputNode);
         activeNodes.push(p3d);
-        // finalOutput = p3d;
       } else {
         panner.connect(outputNode);
       }
 
-      // ADSR Envelope
       // ADSR Envelope - Smoother transitions to prevent clicks
-      envGain.gain.setValueAtTime(envGain.gain.value, now);
-      envGain.gain.setTargetAtTime(targetGain, now, pAttack / 4);
+      envGain.gain.setValueAtTime(envGain.gain.value, startTime);
+      envGain.gain.setTargetAtTime(targetGain, startTime, pAttack / 4);
       if (pDecay > 0) {
-        envGain.gain.setTargetAtTime(targetGain * pSustain, now + pAttack, pDecay / 3);
+        envGain.gain.setTargetAtTime(targetGain * pSustain, startTime + pAttack, pDecay / 3);
       }
       if (!loop) {
-        const holdEnd = now + Math.max(pAttack + pDecay, durationSec - pRelease);
+        const holdEnd = startTime + Math.max(pAttack + pDecay, durationSec - pRelease);
         envGain.gain.cancelScheduledValues(holdEnd);
         envGain.gain.setTargetAtTime(0, holdEnd, pRelease / 3);
       }
@@ -1898,14 +1914,14 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
         lfoGain.gain.value = h.wobbleDepthCents ?? 3;
         lfo.connect(lfoGain);
         lfoGain.connect(osc.detune);
-        lfo.start(now);
-        if (!loop) lfo.stop(now + durationSec + pRelease + 0.1);
+        lfo.start(startTime);
+        if (!loop) lfo.stop(startTime + durationSec + pRelease + 0.1);
         activeOscillators.push(lfo);
         activeNodes.push(lfoGain);
       }
 
-      osc.start(now);
-      if (!loop) osc.stop(now + durationSec + pRelease + 0.1);
+      osc.start(startTime);
+      if (!loop) osc.stop(startTime + durationSec + pRelease + 0.1);
       activeOscillators.push(osc);
       activeGains.push(envGain);
       activeNodes.push(panner, wobbleGain);
@@ -1935,57 +1951,63 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
     }
   });
 
-  // 3. Noise Burst
-  if (noiseBurst && noiseBurst.gain > 0) {
-    const bufferSize = c.sampleRate * (noiseBurst.attackSec + noiseBurst.decaySec + 0.1);
-    const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
-    const data = buffer.getChannelData(0);
+  // 3. Noise Bursts (Multi-Impact Support)
+  const bursts = Array.isArray(noiseBurst) ? noiseBurst : (noiseBurst ? [noiseBurst] : []);
+  bursts.forEach(burst => {
+    if (burst.gain > 0) {
+      const delaySec = burst.delaySec || 0;
+      const startTime = now + delaySec;
 
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < bufferSize; i++) {
-      const white = Math.random() * 2 - 1;
-      if (noiseBurst.type === "pink") {
-        b0 = 0.99886 * b0 + white * 0.0555179;
-        b1 = 0.99332 * b1 + white * 0.0750759;
-        b2 = 0.96900 * b2 + white * 0.1538520;
-        b3 = 0.86650 * b3 + white * 0.3104856;
-        b4 = 0.55000 * b4 + white * 0.5329522;
-        b5 = -0.7616 * b5 - white * 0.0168980;
-        data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
-        b6 = white * 0.115926;
-      } else {
-        data[i] = white;
+      const bufferSize = c.sampleRate * (burst.attackSec + burst.decaySec + 0.1);
+      const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
+      const data = buffer.getChannelData(0);
+
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        if (burst.type === "pink") {
+          b0 = 0.99886 * b0 + white * 0.0555179;
+          b1 = 0.99332 * b1 + white * 0.0750759;
+          b2 = 0.96900 * b2 + white * 0.1538520;
+          b3 = 0.86650 * b3 + white * 0.3104856;
+          b4 = 0.55000 * b4 + white * 0.5329522;
+          b5 = -0.7616 * b5 - white * 0.0168980;
+          data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+          b6 = white * 0.115926;
+        } else {
+          data[i] = white;
+        }
       }
+
+      const noiseSrc = c.createBufferSource();
+      noiseSrc.buffer = buffer;
+
+      let noiseOutNode: AudioNode = outputNode;
+
+      if (burst.bandpassHz) {
+        const bp = c.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = burst.bandpassHz;
+        bp.Q.value = 1.0;
+        bp.connect(outputNode);
+        activeNodes.push(bp);
+        noiseOutNode = bp;
+      }
+
+      const noiseEnv = c.createGain();
+      noiseEnv.gain.setValueAtTime(0, startTime);
+      noiseEnv.gain.linearRampToValueAtTime(burst.gain * (options.gainMultiplier || 1), startTime + burst.attackSec);
+      noiseEnv.gain.setTargetAtTime(0, startTime + burst.attackSec, burst.decaySec / 3);
+
+      noiseSrc.connect(noiseEnv);
+      noiseEnv.connect(noiseOutNode);
+
+      noiseSrc.start(startTime);
+      noiseSrc.stop(startTime + burst.attackSec + burst.decaySec + 0.1);
+      activeGains.push(noiseEnv);
+      activeNodes.push(noiseSrc as any);
     }
-
-    const noiseSrc = c.createBufferSource();
-    noiseSrc.buffer = buffer;
-
-    let noiseOutNode: AudioNode = outputNode;
-
-    if (noiseBurst.bandpassHz) {
-      const bp = c.createBiquadFilter();
-      bp.type = "bandpass";
-      bp.frequency.value = noiseBurst.bandpassHz;
-      bp.Q.value = 1.0;
-      bp.connect(outputNode);
-      activeNodes.push(bp);
-      noiseOutNode = bp;
-    }
-
-    const noiseEnv = c.createGain();
-    noiseEnv.gain.setValueAtTime(0, now);
-    noiseEnv.gain.linearRampToValueAtTime(noiseBurst.gain * (options.gainMultiplier || 1), now + noiseBurst.attackSec);
-    noiseEnv.gain.setTargetAtTime(0, now + noiseBurst.attackSec, noiseBurst.decaySec / 3);
-
-    noiseSrc.connect(noiseEnv);
-    noiseEnv.connect(noiseOutNode);
-
-    noiseSrc.start(now);
-    noiseSrc.stop(now + noiseBurst.attackSec + noiseBurst.decaySec + 0.1);
-    activeGains.push(noiseEnv);
-    activeNodes.push(noiseSrc as any);
-  }
+  });
 
   if (!loop && !options.overlap) {
     activeStopTimer = setTimeout(() => {

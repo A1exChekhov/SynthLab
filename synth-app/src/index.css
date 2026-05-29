@@ -1,41 +1,80 @@
 :root {
-  --bg-color: #050508;
-  --panel-bg: rgba(15, 15, 25, 0.8);
-  --accent-pink: #ff2a6d;
-  --accent-cyan: #05d9e8;
-  --accent-amber: #ffae00;
+  /* Matte Dark Studio Theme (Non-acidic) */
+  --bg-color: #121212;
+  --panel-bg: #1e1e1e;
+  --accent-pink: #5c5c5c; /* Replaced with muted gray */
+  --accent-cyan: #3b82f6; /* Muted Afterburner blue */
+  --accent-amber: #8e8e8e; /* Muted gray */
   --text-primary: #e0e0e0;
-  --text-secondary: #8a8a8a;
-  --border-color: #333344;
-  --neon-glow: 0 0 10px rgba(255, 42, 109, 0.5);
-  --neon-glow-cyan: 0 0 10px rgba(5, 217, 232, 0.5);
+  --text-secondary: #9aa0a6;
+  --border-color: #333333;
 }
 
-body {
+:root[data-theme='light'] {
+  /* Strict Monochrome Light Theme */
+  --bg-color: #f8f9fa;
+  --panel-bg: #ffffff;
+  --accent-pink: #475569; /* Muted slate instead of pink */
+  --accent-cyan: #2563eb; /* Primary active blue instead of cyan */
+  --accent-amber: #64748b; /* Muted gray instead of amber */
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+}
+
+html, body, #root {
+  height: 100%;
   margin: 0;
   padding: 0;
+  overflow: hidden; /* Prevent scrolling entirely */
   background-color: var(--bg-color);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-weight: 300;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
 }
 
 * {
   box-sizing: border-box;
 }
 
-/* Custom Scrollbar for Retro Feel */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #050508;
+  background: #f8f9fa;
 }
 ::-webkit-scrollbar-thumb {
-  background: #222233;
+  background: #ced4da;
   border-radius: 4px;
+}
+
+/* Studio Fader Styles */
+.fader-input {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.fader-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 20px;
+  background: #ffffff;
+  border: 1px solid #adb5bd;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  cursor: pointer;
+}
+.fader-input::-moz-range-thumb {
+  width: 12px;
+  height: 20px;
+  background: #ffffff;
+  border: 1px solid #adb5bd;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  cursor: pointer;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-pink);

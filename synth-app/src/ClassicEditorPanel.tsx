@@ -141,14 +141,16 @@ export default function ClassicEditorPanel() {
 
     const key = name.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now().toString().slice(-4);
     const newPreset = { ...editedPreset, name, groupId: group.trim() || undefined };
-    const updated = { ...customPresets, [key]: newPreset };
+    const freshStorage = loadCustomPresets();
+    const updated = { ...freshStorage, [key]: newPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
     setActivePresetKey(key);
   };
 
   const deleteCustom = (key: string) => {
-    const updated = { ...customPresets };
+    const freshStorage = loadCustomPresets();
+    const updated = { ...freshStorage };
     delete updated[key];
     setCustomPresets(updated);
     saveCustomPresets(updated);
@@ -158,9 +160,10 @@ export default function ClassicEditorPanel() {
   const renameCustom = (key: string) => {
     if (!renameVal.trim()) return;
     const newKey = renameVal.trim().toLowerCase().replace(/\s+/g, "_");
-    const preset = customPresets[key];
+    const freshStorage = loadCustomPresets();
+    const preset = freshStorage[key];
     if (!preset) return;
-    const updated = { ...customPresets };
+    const updated = { ...freshStorage };
     delete updated[key];
     updated[newKey] = { ...preset, name: renameVal.trim() };
     setCustomPresets(updated);
@@ -179,7 +182,8 @@ export default function ClassicEditorPanel() {
       finalPreset.baseHz = systemOrig.baseHz;
     }
 
-    const updated = { ...customPresets, [activePresetKey]: finalPreset };
+    const freshStorage = loadCustomPresets();
+    const updated = { ...freshStorage, [activePresetKey]: finalPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
   };
@@ -352,7 +356,7 @@ export default function ClassicEditorPanel() {
 
   const updateNoise = (field: string, value: any) => {
     if (!editedPreset) return;
-    let newNoise: any = editedPreset.noiseBurst ? { ...editedPreset.noiseBurst } : { type: "pink", attackSec: 0.01, decaySec: 0.05, bandpassHz: 4000, gain: 0 };
+    let newNoise: any = editedPreset.noiseBurst ? { ...(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : editedPreset.noiseBurst) } : { type: "pink", attackSec: 0.01, decaySec: 0.05, bandpassHz: 4000, gain: 0 };
     if (value === "") {
       delete newNoise[field];
     } else {
@@ -505,7 +509,8 @@ export default function ClassicEditorPanel() {
                       val = prompt("Название новой папки/группы:") || "";
                       if (!val) return;
                     }
-                    const updated = { ...customPresets, [key]: { ...preset, groupId: val } };
+                    const freshStorage = loadCustomPresets();
+                    const updated = { ...freshStorage, [key]: { ...preset, groupId: val } };
                     setCustomPresets(updated);
                     saveCustomPresets(updated);
                   }}
@@ -552,7 +557,7 @@ export default function ClassicEditorPanel() {
 
   return (
     <div style={{ padding: "16px", background: "#f8f9fa", color: "#24292e", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif", minHeight: "100vh" }}>
-      <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+      <div style={{ width: "100%" }}>
         
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
@@ -970,22 +975,22 @@ export default function ClassicEditorPanel() {
               {editedPreset.noiseBurst && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px" }}>
                     <label style={labelStyle}>Тип шума
-                      <select value={editedPreset.noiseBurst.type || "pink"} onChange={e => updateNoise("type", e.target.value)} style={selectStyle}>
+                      <select value={(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : editedPreset.noiseBurst).type || "pink"} onChange={e => updateNoise("type", e.target.value)} style={selectStyle}>
                         <option value="pink">Pink</option>
                         <option value="white">White</option>
                       </select>
                     </label>
                     <label style={labelStyle}>Атака (с)
-                      <input type="number" step="0.001" placeholder="0.001" value={editedPreset.noiseBurst.attackSec ?? ""} onChange={e => updateNoise("attackSec", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
+                      <input type="number" step="0.001" placeholder="0.001" value={(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : editedPreset.noiseBurst).attackSec ?? ""} onChange={e => updateNoise("attackSec", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
                     </label>
                     <label style={labelStyle}>Decay (с)
-                      <input type="number" step="0.01" placeholder="0.05" value={editedPreset.noiseBurst.decaySec ?? ""} onChange={e => updateNoise("decaySec", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
+                      <input type="number" step="0.01" placeholder="0.05" value={(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : editedPreset.noiseBurst).decaySec ?? ""} onChange={e => updateNoise("decaySec", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
                     </label>
                     <label style={labelStyle}>Bandpass Hz
-                      <input type="number" step="100" placeholder="4000" value={editedPreset.noiseBurst.bandpassHz ?? ""} onChange={e => updateNoise("bandpassHz", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
+                      <input type="number" step="100" placeholder="4000" value={(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : editedPreset.noiseBurst).bandpassHz ?? ""} onChange={e => updateNoise("bandpassHz", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
                     </label>
                     <label style={labelStyle}>Gain
-                      <input type="number" step="0.01" placeholder="0.05" value={editedPreset.noiseBurst.gain ?? ""} onChange={e => updateNoise("gain", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
+                      <input type="number" step="0.01" placeholder="0.05" value={(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : editedPreset.noiseBurst).gain ?? ""} onChange={e => updateNoise("gain", e.target.value ? Number(e.target.value) : "")} style={inputStyle} />
                     </label>
                 </div>
               )}

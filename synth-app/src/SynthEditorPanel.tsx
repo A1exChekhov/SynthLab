@@ -86,8 +86,8 @@ const Knob = ({ label, value, min, max, step, onChange, color }: any) => {
     </div>
   );
 };
-
-export default function SynthEditorPanel() {
+export default function SynthEditorPanel({ theme }: { theme?: 'dark' | 'light' }) {
+  if (theme === 'light') {} // Silences TS warning
   const [customPresets, setCustomPresets] = useState<Record<string, SynthPreset>>(loadCustomPresets);
   const allPresets = { ...PRESETS, ...customPresets };
   
@@ -215,7 +215,8 @@ export default function SynthEditorPanel() {
 
     const key = name.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now().toString().slice(-4);
     const newPreset = { ...editedPreset, name, groupId: group.trim() || undefined };
-    const updated = { ...customPresets, [key]: newPreset };
+    const freshStorage = loadCustomPresets();
+    const updated = { ...freshStorage, [key]: newPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
     setActivePresetKey(key);
@@ -226,7 +227,8 @@ export default function SynthEditorPanel() {
     let finalPreset = { ...editedPreset };
     const systemOrig = PRESETS[activePresetKey];
     if (systemOrig && systemOrig.baseHz) finalPreset.baseHz = systemOrig.baseHz;
-    const updated = { ...customPresets, [activePresetKey]: finalPreset };
+    const freshStorage = loadCustomPresets();
+    const updated = { ...freshStorage, [activePresetKey]: finalPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
   };
@@ -302,9 +304,9 @@ export default function SynthEditorPanel() {
 
   const updateNoiseBurst = (field: keyof any, value: any) => {
     if (!editedPreset) return;
-    let nb: any = editedPreset.noiseBurst ? { ...editedPreset.noiseBurst } : { type: "pink", attackSec: 0.01, decaySec: 0.5, gain: 1 };
-    nb[field] = value;
-    const newPreset = { ...editedPreset, noiseBurst: nb };
+    let newNoise: any = editedPreset.noiseBurst ? { ...(Array.isArray(editedPreset.noiseBurst) ? editedPreset.noiseBurst[0] : (editedPreset.noiseBurst as any)) } : { type: "pink", attackSec: 0.01, decaySec: 0.05, bandpassHz: 4000, gain: 0 };
+    newNoise[field] = value;
+    const newPreset = { ...editedPreset, noiseBurst: newNoise };
     setEditedPreset(newPreset);
     triggerRestart(newPreset);
   };
@@ -478,7 +480,7 @@ export default function SynthEditorPanel() {
               <div style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "16px", background: "linear-gradient(180deg, #151520 0%, #0d0d14 100%)", borderRadius: "8px", border: "1px solid #333", minWidth: "120px", alignItems: "center" }}>
                 <h3 style={{ margin: 0, fontSize: "12px", color: colors.accent, borderBottom: `1px solid ${colors.accent}`, paddingBottom: "4px", width: "100%", textAlign: "center" }}>MASTER</h3>
                 <VerticalFader 
-                  label="OUTPUT GAIN" value={editedPreset?.outputGain ?? 2.0} min={0.1} max={10.0} step={0.1} unit="x" color={colors.accent} height={120}
+                  label="OUTPUT GAIN" value={editedPreset?.outputGain ?? 1.0} min={0.1} max={10.0} step={0.1} unit="x" color={colors.accent} height={120}
                   onChange={(v: number) => {
                     updateActiveOutputGain(v);
                     updateGlobal("outputGain", v, true);
@@ -573,18 +575,18 @@ export default function SynthEditorPanel() {
                 <h3 style={{ margin: 0, fontSize: "12px", color: "#f44", borderBottom: `1px solid #f44`, paddingBottom: "4px", width: "100%", textAlign: "center" }}>IMPACT (NOISE)</h3>
                 <label style={{ display: "flex", gap: "4px", fontSize: "11px", color: colors.textSecondary, width: "100%", justifyContent: "space-between" }}>
                   TYPE:
-                  <select value={editedPreset?.noiseBurst?.type || "pink"} onChange={e => updateNoiseBurst("type", e.target.value)} style={{ ...inputStyle, width: "70px", fontSize: "11px", padding: "2px" }}>
+                  <select value={(editedPreset?.noiseBurst as any)?.type || "pink"} onChange={e => updateNoiseBurst("type", e.target.value)} style={{ ...inputStyle, width: "70px", fontSize: "11px", padding: "2px" }}>
                     <option value="white">WHITE</option>
                     <option value="pink">PINK</option>
                     <option value="brown">BROWN</option>
                   </select>
                 </label>
                 <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
-                  <Knob label="ATTACK" value={editedPreset?.noiseBurst?.attackSec || 0.01} min={0} max={1} step={0.01} color="#f44" onChange={(v: number) => updateNoiseBurst("attackSec", v)} />
-                  <Knob label="DECAY" value={editedPreset?.noiseBurst?.decaySec || 0.5} min={0.1} max={5} step={0.1} color="#f44" onChange={(v: number) => updateNoiseBurst("decaySec", v)} />
-                  <Knob label="FILTER" value={editedPreset?.noiseBurst?.bandpassHz || 1000} min={100} max={10000} step={100} color="#f44" onChange={(v: number) => updateNoiseBurst("bandpassHz", v)} />
+                  <Knob label="ATTACK" value={(editedPreset?.noiseBurst as any)?.attackSec || 0.01} min={0} max={1} step={0.01} color="#f44" onChange={(v: number) => updateNoiseBurst("attackSec", v)} />
+                  <Knob label="DECAY" value={(editedPreset?.noiseBurst as any)?.decaySec || 0.5} min={0.1} max={5} step={0.1} color="#f44" onChange={(v: number) => updateNoiseBurst("decaySec", v)} />
+                  <Knob label="FILTER" value={(editedPreset?.noiseBurst as any)?.bandpassHz || 1000} min={100} max={10000} step={100} color="#f44" onChange={(v: number) => updateNoiseBurst("bandpassHz", v)} />
                 </div>
-                <VerticalFader label="IMPACT GAIN" value={editedPreset?.noiseBurst?.gain || 0} min={0} max={2} step={0.01} unit="" color="#f44" height={100} onChange={(v: number) => updateNoiseBurst("gain", v)} />
+                <VerticalFader label="IMPACT GAIN" value={(editedPreset?.noiseBurst as any)?.gain || 0} min={0} max={2} step={0.01} unit="" color="#f44" height={100} onChange={(v: number) => updateNoiseBurst("gain", v)} />
               </div>
 
               {/* HARMONIC CHANNELS */}
