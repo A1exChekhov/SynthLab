@@ -93,6 +93,8 @@ class Engine:
         self.streams = []
         self.running = False
         self.test = False
+        self.test_left = True
+        self.test_right = True
         self.master = 1.0
         self.busL = 1.0
         self.busR = 1.0
@@ -122,9 +124,13 @@ class Engine:
 
         def cb(outdata, frames, _t, _s):
             if self.test:
-                tt = (self._ph[ch_idx] + np.arange(frames)) / SR
-                self._ph[ch_idx] += frames
-                mix = (0.2 * np.sin(2 * np.pi * self.tone[ch_idx] * tt)).astype(np.float32)
+                on = self.test_left if left else self.test_right
+                if on:
+                    tt = (self._ph[ch_idx] + np.arange(frames)) / SR
+                    self._ph[ch_idx] += frames
+                    mix = (0.2 * np.sin(2 * np.pi * self.tone[ch_idx] * tt)).astype(np.float32)
+                else:
+                    mix = np.zeros(frames, dtype=np.float32)
             else:
                 mix = np.zeros(frames, dtype=np.float32)
                 for src in self.sources:
@@ -212,8 +218,8 @@ class Engine:
 
 BG = "#15181d"; PANEL = "#1b1f26"; FG = "#e0e0e0"; SUB = "#8b94a0"
 BD = "#2a2f37"; ACC = "#2dd36f"; ACC2 = "#0077b6"; RED = "#e63946"
-FONT = ("Consolas", 9)
-FONT_B = ("Consolas", 10, "bold")
+FONT = ("Segoe UI", 10)
+FONT_B = ("Segoe UI", 11, "bold")
 
 
 class App:
@@ -252,7 +258,12 @@ class App:
         s.map("TButton", background=[("active", BD)])
         s.configure("TCheckbutton", background=PANEL, foreground=FG)
         s.map("TCheckbutton", background=[("active", PANEL)])
-        s.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=FG, arrowcolor=FG)
+        s.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=FG, arrowcolor=FG, padding=4)
+        s.map("TCombobox",
+              fieldbackground=[("readonly", PANEL), ("disabled", PANEL)],
+              foreground=[("readonly", FG), ("disabled", SUB)],
+              selectbackground=[("readonly", PANEL)],
+              selectforeground=[("readonly", FG)])
         s.configure("Horizontal.TScale", background=PANEL, troughcolor=BD)
         self.root.option_add("*TCombobox*Listbox.background", PANEL)
         self.root.option_add("*TCombobox*Listbox.foreground", FG)
@@ -273,41 +284,24 @@ class App:
         ttk.Label(head, text="CHANNEL SPLITTER", style="Head.TLabel").pack(side="left")
         ttk.Label(head, text="L/R → две колонки · мультиисточник · баланс", foreground=SUB, background=BG).pack(side="left", padx=10)
 
-        # ── Outputs (two speakers) ──
+        # ── Outputs: LEFT strip | meters | RIGHT strip (Voicemeeter-style) ──
         out = ttk.Frame(self.root, style="Panel.TFrame")
         out.pack(fill="x", padx=10, pady=4)
-        ttk.Label(out, text="ВЫХОДЫ (КОЛОНКИ)", style="Sub.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", padx=8, pady=(6, 2))
+        ttk.Label(out, text="ВЫХОДЫ — КОЛОНКИ", style="Sub.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 2))
 
-        ttk.Label(out, text="ЛЕВАЯ", background=PANEL, foreground=ACC).grid(row=1, column=0, sticky="w", padx=8)
-        self.left_cb = ttk.Combobox(out, values=self._out_labels(), state="readonly", width=46, font=FONT)
-        self.left_cb.grid(row=1, column=1, sticky="we", padx=4, pady=3)
         self.busL_var = tk.DoubleVar(value=100)
-        ttk.Scale(out, from_=0, to=150, variable=self.busL_var, orient="horizontal",
-                  command=lambda v: setattr(self.engine, "busL", float(v) / 100)).grid(row=1, column=2, sticky="we", padx=4)
-        self.busL_lbl = ttk.Label(out, text="100%", background=PANEL, foreground=SUB, width=5)
-        self.busL_lbl.grid(row=1, column=3, padx=4)
-
-        ttk.Label(out, text="ПРАВАЯ", background=PANEL, foreground=ACC).grid(row=2, column=0, sticky="w", padx=8)
-        self.right_cb = ttk.Combobox(out, values=self._out_labels(), state="readonly", width=46, font=FONT)
-        self.right_cb.grid(row=2, column=1, sticky="we", padx=4, pady=3)
         self.busR_var = tk.DoubleVar(value=100)
-        ttk.Scale(out, from_=0, to=150, variable=self.busR_var, orient="horizontal",
-                  command=lambda v: setattr(self.engine, "busR", float(v) / 100)).grid(row=2, column=2, sticky="we", padx=4)
-        self.busR_lbl = ttk.Label(out, text="100%", background=PANEL, foreground=SUB, width=5)
-        self.busR_lbl.grid(row=2, column=3, padx=4)
+        self.left_cb, self.busL_lbl = self._build_out_strip(out, 1, 0, "🔊  ЛЕВАЯ  (A)", "Bob", self.busL_var, "busL", "L")
 
-        # Voicemeeter-style VU meters for the two output buses
         mfr = ttk.Frame(out, style="Panel.TFrame")
-        mfr.grid(row=3, column=0, columnspan=4, sticky="we", padx=8, pady=(2, 8))
-        ttk.Label(mfr, text="УРОВЕНЬ ВЫХОДОВ  (A = левая · B = правая)", style="Sub.TLabel").pack(anchor="w")
-        self.meters = tk.Canvas(mfr, height=190, bg=PANEL, highlightthickness=0)
-        self.meters.pack(fill="x", expand=True)
-        out.columnconfigure(1, weight=1)
-        out.columnconfigure(2, weight=1)
+        mfr.grid(row=1, column=1, padx=6, pady=4)
+        self.meters = tk.Canvas(mfr, width=150, height=210, bg=PANEL, highlightthickness=0)
+        self.meters.pack()
 
-        # default speaker selection
-        self._select_default(self.left_cb, self.out_devs, "Bob")
-        self._select_default(self.right_cb, self.out_devs, "JBL")
+        self.right_cb, self.busR_lbl = self._build_out_strip(out, 1, 2, "🔊  ПРАВАЯ  (B)", "JBL", self.busR_var, "busR", "R")
+
+        out.columnconfigure(0, weight=1)
+        out.columnconfigure(2, weight=1)
 
         # ── Sources ──
         srchead = ttk.Frame(self.root)
@@ -327,7 +321,7 @@ class App:
         tr.pack(fill="x", padx=10, pady=8)
         self.start_btn = ttk.Button(tr, text="▶ СТАРТ", command=self.toggle)
         self.start_btn.pack(side="left")
-        ttk.Button(tr, text="Тест тоны", command=self.test_tones).pack(side="left", padx=6)
+        ttk.Button(tr, text="Тест обе", command=lambda: self.test_side("both")).pack(side="left", padx=6)
         ttk.Button(tr, text="⟳ Устройства", command=self.refresh_devices).pack(side="left")
         ttk.Label(tr, text="МАСТЕР", foreground=SUB, background=BG).pack(side="left", padx=(16, 4))
         self.master_var = tk.DoubleVar(value=100)
@@ -338,6 +332,23 @@ class App:
 
         # one source by default
         self.add_source_row(default_sub="CABLE Output")
+
+    def _build_out_strip(self, parent, row, col, title, default_sub, vol_var, bus_attr, side):
+        f = ttk.Frame(parent, style="Panel.TFrame")
+        f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
+        ttk.Label(f, text=title, background=PANEL, foreground=ACC, font=FONT_B).pack(anchor="w")
+        cb = ttk.Combobox(f, values=self._out_labels(), state="readonly", font=FONT)
+        cb.pack(fill="x", pady=(4, 6))
+        self._select_default(cb, self.out_devs, default_sub)
+        vr = ttk.Frame(f, style="Panel.TFrame")
+        vr.pack(fill="x")
+        ttk.Label(vr, text="ГРОМК.", background=PANEL, foreground=SUB).pack(side="left")
+        ttk.Scale(vr, from_=0, to=150, variable=vol_var, orient="horizontal",
+                  command=lambda v, a=bus_attr: setattr(self.engine, a, float(v) / 100)).pack(side="left", fill="x", expand=True, padx=4)
+        lbl = ttk.Label(vr, text="100%", background=PANEL, foreground=SUB, width=5)
+        lbl.pack(side="left")
+        ttk.Button(f, text="🔊 Тест этой колонки", command=lambda s=side: self.test_side(s)).pack(fill="x", pady=(8, 2))
+        return cb, lbl
 
     def _select_default(self, cb, devlist, sub):
         idx = find_default(sub, want_output=(devlist is self.out_devs))
@@ -436,19 +447,24 @@ class App:
         self.start_btn.config(text="■ СТОП")
         self.status.config(text="играет")
 
-    def test_tones(self):
+    def test_side(self, side):
         left = self._combo_idx(self.left_cb, self.out_devs)
         right = self._combo_idx(self.right_cb, self.out_devs)
         if left is None or right is None:
             messagebox.showerror("Splitter", "Выбери обе колонки.")
             return
+        self.engine.test_left = side in ("L", "both")
+        self.engine.test_right = side in ("R", "both")
         try:
             self.engine.start([], left, right, test=True)
         except Exception as e:
             messagebox.showerror("Splitter", f"Ошибка теста:\n{e}")
             return
         self.start_btn.config(text="■ СТОП")
-        self.status.config(text="тест: L=440Гц R=660Гц")
+        txt = {"L": "ТЕСТ → только ЛЕВАЯ (440 Гц)",
+               "R": "ТЕСТ → только ПРАВАЯ (660 Гц)",
+               "both": "ТЕСТ → L=440 / R=660"}[side]
+        self.status.config(text=txt)
 
     @staticmethod
     def _to_db(lvl):
@@ -463,9 +479,9 @@ class App:
     def _draw_meters(self):
         c = self.meters
         c.delete("all")
-        W = c.winfo_width() or 400
-        H = 190
-        top, bot = 18, H - 18
+        W = c.winfo_width() or 150
+        H = c.winfo_height() or 210
+        top, bot = 18, H - 24
         barH = bot - top
         barW = 30
         cx = W / 2
