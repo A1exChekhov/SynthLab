@@ -128,7 +128,7 @@ function detectPitchHybrid(
   return -1;
 }
 
-export default function SoundCapturerPanel({ theme = 'dark', masterVolume = 0.5 }: { theme?: 'dark' | 'light', masterVolume?: number }) {
+export default function SoundCapturerPanel({ theme = 'dark', masterVolume = 0.5, onSendToStudio }: { theme?: 'dark' | 'light', masterVolume?: number, onSendToStudio?: () => void }) {
   const colors = theme === 'light' ? {
     bg: "#f8f9fa",
     panel: "#ffffff",
@@ -1927,15 +1927,16 @@ export default function SoundCapturerPanel({ theme = 'dark', masterVolume = 0.5 
     }
   };
 
-  // Save/Import Preset into Generator Rack
-  const handleSaveToSynth = () => {
+  // Build the captured SynthPreset and persist it to the custom-preset store.
+  // Returns the new preset key, or null if there is nothing captured yet.
+  const buildAndSavePreset = (): string | null => {
     if (capHz <= 0 || capHarmonics.length === 0) {
       alert("Сначала захватите звук с помощью снимка спектра или записи огибающих!");
-      return;
+      return null;
     }
 
     const key = presetName.toLowerCase().replace(/[^a-z0-9]/g, "_") + "_" + Date.now().toString().slice(-4);
-    
+
     const mappedHarmonics = capHarmonics.map(h => ({
       ...h,
       decaySec: h.decaySec !== undefined ? h.decaySec : decSec,
@@ -1950,7 +1951,7 @@ export default function SoundCapturerPanel({ theme = 'dark', masterVolume = 0.5 
       waveform: presetWaveform,
       harmonics: mappedHarmonics,
       attackSec: atkSec,
-      decaySec: decSec, 
+      decaySec: decSec,
       sustainRatio: susRatio,
       releaseSec: relSec,
       noiseBurst: capNoiseBursts.length > 0 ? capNoiseBursts : undefined,
@@ -1964,8 +1965,21 @@ export default function SoundCapturerPanel({ theme = 'dark', masterVolume = 0.5 
     const updated = { ...freshStorage, [key]: newPreset };
     setCustomPresets(updated);
     saveCustomPresets(updated);
+    return key;
+  };
 
-    alert(`Пресет "${presetName}" успешно сохранен! Вы можете найти его во вкладке USER в Rack Консоли или Classic.`);
+  // Save/Import Preset into Generator Rack
+  const handleSaveToSynth = () => {
+    const key = buildAndSavePreset();
+    if (key) alert(`Пресет "${presetName}" успешно сохранен! Найдите его во вкладке USER (Console/Classic) или в группе «Захваченные» в STUDIO.`);
+  };
+
+  // Save + hand off to the STUDIO rack (loads into channel 1 there).
+  const handleSendToStudio = () => {
+    const key = buildAndSavePreset();
+    if (!key) return;
+    try { localStorage.setItem("studio_pending_preset", key); } catch { /* ignore */ }
+    if (onSendToStudio) onSendToStudio();
   };
 
   // Generate exact SynthPreset formatted code for developers to copy
@@ -2636,6 +2650,9 @@ export default function SoundCapturerPanel({ theme = 'dark', masterVolume = 0.5 
               
               <button onClick={handleSaveToSynth} style={{ ...buttonStyle(true, colors.accentCyan), padding: "12px 24px", fontSize: "14px" }}>
                 💾 СОХРАНИТЬ В SYNTH RACK (ЭКСПОРТ)
+              </button>
+              <button onClick={handleSendToStudio} style={{ ...buttonStyle(true, "#2dd36f"), padding: "12px 24px", fontSize: "14px" }}>
+                📤 ОТПРАВИТЬ В STUDIO (КАНАЛ 1)
               </button>
             </div>
 

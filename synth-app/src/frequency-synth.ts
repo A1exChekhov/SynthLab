@@ -1569,7 +1569,18 @@ export type PlayOptions = {
   panDirection?: number; // 1 or -1
   pannerType?: string;
   spatialRotationHz?: number;
+  destination?: AudioNode; // Mixer: route this voice into a channel bus instead of master
 };
+
+// Handle to the audio nodes created by a single playFrequency() call,
+// so the mixer can stop one channel's voices independently of the rest.
+export type VoiceHandle = {
+  osc: OscillatorNode[];
+  gains: GainNode[];
+  nodes: AudioNode[];
+  boosts: GainNode[];
+};
+let lastVoiceHandle: VoiceHandle | null = null;
 
 // ── Tools ─────────────────────────────────────────────────────────
 
@@ -1710,6 +1721,14 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
     stopFrequency();
   }
 
+  // Mixer: remember array offsets so we can isolate the nodes THIS call creates
+  // (JS is single-threaded, so nothing interleaves within this synchronous function).
+  const _oscStart = activeOscillators.length;
+  const _gainStart = activeGains.length;
+  const _nodeStart = activeNodes.length;
+  const _boostStart = activeFinalBoosts.length;
+  lastVoiceHandle = null;
+
   const preset = options.preset ? PRESETS[options.preset] : null;
 
   const waveform: OscillatorType = options.waveform ?? preset?.waveform ?? "sine";
@@ -1748,7 +1767,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
       env.gain.value = 0;
       env.gain.linearRampToValueAtTime(peakGain, c.currentTime + attackSec);
       src.connect(env);
-      env.connect(masterGainNode!);
+      env.connect(options.destination ?? masterGainNode!);
       src.start(c.currentTime);
       activeGains.push(env);
       activeNodes.push(src as any);
@@ -1769,7 +1788,7 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
   limiter.ratio.setValueAtTime(20, now); // Act as a brickwall limiter
   limiter.attack.setValueAtTime(0.003, now);
   limiter.release.setValueAtTime(0.1, now);
-  limiter.connect(masterGainNode!);
+  limiter.connect(options.destination ?? masterGainNode!);
 
   // Final Boost (Make-up Gain / Output Gain) before limiter
   const finalBoost = c.createGain();
@@ -2027,6 +2046,13 @@ export function playFrequency(hz: number, options: PlayOptions = {}): boolean {
     }, (durationSec + releaseSec + 0.5) * 1000);
   }
 
+  lastVoiceHandle = {
+    osc: activeOscillators.slice(_oscStart),
+    gains: activeGains.slice(_gainStart),
+    nodes: activeNodes.slice(_nodeStart),
+    boosts: activeFinalBoosts.slice(_boostStart),
+  };
+
   return true;
 }
 
@@ -2135,4 +2161,351 @@ export function startSequence(presetId: string, preset: SynthPreset, hz: number,
 export function updateSequencePreset(presetId: string, newPreset: SynthPreset, hz: number): void {
   if (!activeSequences.has(presetId)) return;
   startSequence(presetId, newPreset, hz);
+}
+
+// ── Mixer: 16-Channel Live Rack ───────────────────────────────────
+// Each channel is an independent bus: voices → input(volume) → panner → analyser → master.
+// Channels start/stop/mute/solo independently of each other and of the legacy single-voice API.
+
+export const NUM_CHANNELS = 16;
+
+type ChannelBus = {
+  input: GainNode;
+  panner: StereoPannerNode;
+  analyser: AnalyserNode;
+  voices: VoiceHandle[];
+  repeatTimer: ReturnType<typeof setTimeout> | null;
+  active: boolean;
+};
+
+let channelBuses: ChannelBus[] | null = null;
+const chVol: number[] = Array(NUM_CHANNELS).fill(0.8);
+const chPan: number[] = Array(NUM_CHANNELS).fill(0);
+const chMute: boolean[] = Array(NUM_CHANNELS).fill(false);
+const chSolo: boolean[] = Array(NUM_CHANNELS).fill(false);
+
+function getChannelBuses(): ChannelBus[] {
+  const c = getCtx();
+  if (!c) return [];
+  if (channelBuses) return channelBuses;
+  channelBuses = Array.from({ length: NUM_CHANNELS }, (_, i) => {
+    const input = c.createGain();
+    input.gain.value = chVol[i];
+    const panner = c.createStereoPanner();
+    panner.pan.value = chPan[i];
+    const analyser = c.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.6;
+    input.connect(panner);
+    panner.connect(analyser);
+    analyser.connect(masterGainNode!);
+    return { input, panner, analyser, voices: [], repeatTimer: null, active: false };
+  });
+  return channelBuses;
+}
+
+function effectiveChannelGain(i: number): number {
+  const anySolo = chSolo.some(Boolean);
+  const audible = !chMute[i] && (!anySolo || chSolo[i]);
+  return audible ? chVol[i] : 0;
+}
+
+function applyChannelGains(): void {
+  const c = ctx;
+  const buses = channelBuses;
+  if (!c || !buses) return;
+  const now = c.currentTime;
+  buses.forEach((bus, i) => {
+    try { bus.input.gain.setTargetAtTime(effectiveChannelGain(i), now, 0.03); } catch {}
+  });
+}
+
+export function setChannelVolume(i: number, v: number): void {
+  chVol[i] = Math.max(0, Math.min(2, v));
+  getChannelBuses();
+  applyChannelGains();
+}
+
+export function setChannelPan(i: number, p: number): void {
+  chPan[i] = Math.max(-1, Math.min(1, p));
+  const buses = getChannelBuses();
+  const c = ctx;
+  if (buses[i] && c) {
+    try { buses[i].panner.pan.setTargetAtTime(chPan[i], c.currentTime, 0.03); } catch {}
+  }
+}
+
+export function setChannelMute(i: number, m: boolean): void {
+  chMute[i] = m;
+  getChannelBuses();
+  applyChannelGains();
+}
+
+export function setChannelSolo(i: number, s: boolean): void {
+  chSolo[i] = s;
+  getChannelBuses();
+  applyChannelGains();
+}
+
+export function getChannelAnalyser(i: number): AnalyserNode | null {
+  const buses = getChannelBuses();
+  return buses[i]?.analyser ?? null;
+}
+
+export function isChannelPlaying(i: number): boolean {
+  return channelBuses?.[i]?.active ?? false;
+}
+
+// Fade out and stop the nodes of a single voice, and drop them from global tracking
+// so the legacy stopFrequency()/cleanup never touches already-freed nodes.
+function stopVoiceHandle(h: VoiceHandle): void {
+  const c = ctx;
+  if (!c) return;
+  const now = c.currentTime;
+  h.gains.forEach(g => { try { g.gain.cancelScheduledValues(now); g.gain.setTargetAtTime(0, now, 0.03); } catch {} });
+  h.osc.forEach(o => { try { o.stop(now + 0.5); } catch {} });
+  activeOscillators = activeOscillators.filter(o => !h.osc.includes(o));
+  activeGains = activeGains.filter(g => !h.gains.includes(g));
+  activeNodes = activeNodes.filter(n => !h.nodes.includes(n));
+  activeFinalBoosts = activeFinalBoosts.filter(b => !h.boosts.includes(b));
+}
+
+export function stopChannel(i: number): void {
+  const buses = getChannelBuses();
+  const bus = buses[i];
+  if (!bus) return;
+  bus.active = false;
+  if (bus.repeatTimer) { clearTimeout(bus.repeatTimer); bus.repeatTimer = null; }
+  bus.voices.forEach(stopVoiceHandle);
+  bus.voices = [];
+}
+
+export function stopAllChannels(): void {
+  for (let i = 0; i < NUM_CHANNELS; i++) stopChannel(i);
+}
+
+// Start an instrument (preset) playing on a channel. A preset with repeat.enabled
+// runs as a rhythmic pattern; otherwise it sustains as a single looping voice.
+export function startChannel(i: number, preset: SynthPreset, hz: number, opts: { durationSec?: number } = {}): void {
+  const c = getCtx();
+  if (!c) return;
+  if (c.state === "suspended") void c.resume();
+  const buses = getChannelBuses();
+  const bus = buses[i];
+  if (!bus) return;
+  stopChannel(i);
+  bus.active = true;
+
+  const dur = opts.durationSec ?? 4.0;
+  const baseHz = preset.baseHz ?? hz;
+
+  const fire = (gainMul = 1, panDir = 1, loop = false) => {
+    if (!bus.active) return;
+    playFrequency(baseHz, {
+      ...preset,
+      preset: undefined,
+      loop,
+      durationSec: dur,
+      overlap: true,
+      destination: bus.input,
+      gainMultiplier: gainMul,
+      panDirection: panDir,
+    });
+    if (lastVoiceHandle) {
+      bus.voices.push(lastVoiceHandle);
+      // prune finished one-shots so the array doesn't grow unbounded
+      if (bus.voices.length > 64) {
+        const dropped = bus.voices.splice(0, bus.voices.length - 64);
+        dropped.forEach(stopVoiceHandle);
+      }
+    }
+  };
+
+  const repeat = preset.repeat;
+  if (!repeat || !repeat.enabled) {
+    // Sustained, looping instrument voice
+    fire(1, 1, true);
+    return;
+  }
+
+  // Rhythmic pattern
+  let n = 0;
+  const trigger = () => {
+    if (!bus.active) return;
+    const jitter = repeat.timingJitterSec ? (Math.random() - 0.5) * repeat.timingJitterSec : 0;
+    const gainRand = repeat.gainJitter ? 1 + (Math.random() - 0.5) * repeat.gainJitter : 1;
+    const panDir = repeat.alternatePan ? (n % 2 === 0 ? -1 : 1) : 1;
+    fire(gainRand, panDir, false);
+    if (repeat.doubleStrike?.enabled) {
+      setTimeout(() => { if (bus.active) fire(gainRand * repeat.doubleStrike!.gain, -panDir, false); }, repeat.doubleStrike.delaySec * 1000);
+    }
+    n++;
+    if (repeat.count && n >= repeat.count) { stopChannel(i); return; }
+    bus.repeatTimer = setTimeout(trigger, (repeat.intervalSec + jitter) * 1000);
+  };
+  trigger();
+}
+
+// Current AudioContext time — used by the drum/timeline schedulers for drift-free timing.
+export function getAudioTime(): number {
+  return ctx?.currentTime ?? 0;
+}
+
+export function resumeAudio(): void {
+  const c = getCtx();
+  if (c && c.state === "suspended") void c.resume();
+}
+
+// ── Drum bus ──────────────────────────────────────────────────────
+let drumBus: GainNode | null = null;
+
+export function getDrumBus(): GainNode | null {
+  const c = getCtx();
+  if (!c) return null;
+  if (drumBus) return drumBus;
+  drumBus = c.createGain();
+  drumBus.gain.value = 0.9;
+  drumBus.connect(masterGainNode!);
+  return drumBus;
+}
+
+export function setDrumBusVolume(v: number): void {
+  const c = ctx;
+  const bus = getDrumBus();
+  if (bus && c) { try { bus.gain.setTargetAtTime(v, c.currentTime, 0.03); } catch {} }
+}
+
+// Fire a one-shot percussion voice into the drum bus.
+export function triggerDrum(hz: number, voice: PlayOptions, gain = 1): void {
+  const bus = getDrumBus();
+  if (!bus) return;
+  playFrequency(hz, { ...voice, loop: false, overlap: true, durationSec: 1.2, destination: bus, gainMultiplier: gain, peakGain: 0.9 });
+}
+
+// ── Master recording → 16-bit PCM WAV ─────────────────────────────
+// Taps the master bus with a ScriptProcessor, accumulates float PCM, encodes WAV on stop.
+let recProc: ScriptProcessorNode | null = null;
+let recL: Float32Array[] = [];
+let recR: Float32Array[] = [];
+let recordingFlag = false;
+
+export function isRecordingSupported(): boolean {
+  const c = getCtx();
+  return !!c && typeof (c as any).createScriptProcessor === "function";
+}
+
+export function startRecording(): boolean {
+  const c = getCtx();
+  if (!c || !masterGainNode || recordingFlag) return false;
+  recL = []; recR = [];
+  try {
+    recProc = c.createScriptProcessor(4096, 2, 2);
+  } catch {
+    return false;
+  }
+  recProc.onaudioprocess = (e: AudioProcessingEvent) => {
+    if (!recordingFlag) return;
+    const ib = e.inputBuffer;
+    const l = ib.getChannelData(0);
+    const r = ib.numberOfChannels > 1 ? ib.getChannelData(1) : l;
+    recL.push(new Float32Array(l));
+    recR.push(new Float32Array(r));
+  };
+  masterGainNode.connect(recProc);
+  recProc.connect(c.destination); // required for the processor to run (outputs silence)
+  recordingFlag = true;
+  return true;
+}
+
+export function stopRecording(): Promise<Blob | null> {
+  return new Promise(resolve => {
+    const c = ctx;
+    if (!recProc || !c) { resolve(null); return; }
+    recordingFlag = false;
+    try { masterGainNode?.disconnect(recProc); recProc.disconnect(); } catch { /* ignore */ }
+    const blob = encodeWav(recL, recR, c.sampleRate);
+    recProc = null; recL = []; recR = [];
+    resolve(blob);
+  });
+}
+
+export function isRecording(): boolean {
+  return recordingFlag;
+}
+
+function flattenChunks(chunks: Float32Array[]): Float32Array {
+  let len = 0;
+  for (const c of chunks) len += c.length;
+  const out = new Float32Array(len);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
+function encodeWav(lChunks: Float32Array[], rChunks: Float32Array[], sampleRate: number): Blob {
+  const left = flattenChunks(lChunks);
+  const right = flattenChunks(rChunks);
+  const n = Math.min(left.length, right.length);
+  const buffer = new ArrayBuffer(44 + n * 4); // stereo 16-bit => 4 bytes/frame
+  const view = new DataView(buffer);
+  const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + n * 4, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);     // PCM chunk size
+  view.setUint16(20, 1, true);      // PCM format
+  view.setUint16(22, 2, true);      // channels
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 4, true); // byte rate
+  view.setUint16(32, 4, true);      // block align
+  view.setUint16(34, 16, true);     // bits per sample
+  writeStr(36, "data");
+  view.setUint32(40, n * 4, true);
+  let off = 44;
+  for (let i = 0; i < n; i++) {
+    const sl = Math.max(-1, Math.min(1, left[i]));
+    const sr = Math.max(-1, Math.min(1, right[i]));
+    view.setInt16(off, sl < 0 ? sl * 0x8000 : sl * 0x7fff, true); off += 2;
+    view.setInt16(off, sr < 0 ? sr * 0x8000 : sr * 0x7fff, true); off += 2;
+  }
+  return new Blob([view], { type: "audio/wav" });
+}
+
+// ── Shared transport (single clock for drums + timeline) ──────────
+let tPlaying = false;
+let tStart = 0;
+let tTimer: ReturnType<typeof setTimeout> | null = null;
+const tSubs = new Set<(pos: number) => void>();
+
+export function isTransportPlaying(): boolean { return tPlaying; }
+
+export function subscribeTransport(fn: (pos: number) => void): () => void {
+  tSubs.add(fn);
+  return () => { tSubs.delete(fn); };
+}
+
+export function startTransport(): void {
+  resumeAudio();
+  if (tPlaying) return;
+  tPlaying = true;
+  tStart = getAudioTime();
+  const loop = () => {
+    if (!tPlaying) return;
+    const pos = getAudioTime() - tStart;
+    tSubs.forEach(fn => { try { fn(pos); } catch { /* ignore */ } });
+    tTimer = setTimeout(loop, 16);
+  };
+  loop();
+}
+
+export function stopTransport(): void {
+  if (!tPlaying) return;
+  tPlaying = false;
+  if (tTimer) { clearTimeout(tTimer); tTimer = null; }
+  tSubs.forEach(fn => { try { fn(-1); } catch { /* ignore */ } }); // -1 = stopped
+}
+
+export function toggleTransport(): void {
+  if (tPlaying) stopTransport(); else startTransport();
 }

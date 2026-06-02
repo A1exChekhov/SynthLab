@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import SynthEditorPanel from './SynthEditorPanel'
 import ClassicEditorPanel from './ClassicEditorPanel'
 import SoundCapturerPanel from './SoundCapturerPanel'
+import StudioPanel from './StudioPanel'
 import { setGlobalVolume, globalMasterVolume } from './frequency-synth'
 
 function App() {
-  const [uiMode, setUiMode] = useState<'console' | 'classic' | 'capturer'>('console');
+  const [uiMode, setUiMode] = useState<'console' | 'classic' | 'capturer' | 'studio'>('console');
   const [volume, setVolume] = useState<number>(globalMasterVolume * 100);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -87,6 +88,18 @@ function App() {
         >
           🎙️ CAPTURE
         </button>
+        <button
+          onClick={() => setUiMode('studio')}
+          style={{
+            padding: '4px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 400,
+            background: uiMode === 'studio' ? '#2dd36f' : 'transparent',
+            color: uiMode === 'studio' ? '#fff' : 'var(--text-primary)',
+            border: `1px solid ${uiMode === 'studio' ? '#2dd36f' : 'var(--border-color)'}`,
+            transition: 'all 0.2s'
+          }}
+        >
+          🎚️ STUDIO
+        </button>
 
         {/* Master Volume Fader */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -128,8 +141,10 @@ function App() {
           <SynthEditorPanel theme={theme} />
         ) : uiMode === 'classic' ? (
           <ClassicEditorPanel />
+        ) : uiMode === 'studio' ? (
+          <StudioPanel theme={theme} masterVolume={volume / 100} />
         ) : (
-          <SoundCapturerPanel theme={theme} masterVolume={volume / 100} />
+          <SoundCapturerPanel theme={theme} masterVolume={volume / 100} onSendToStudio={() => setUiMode('studio')} />
         )}
       </div>
     </>
