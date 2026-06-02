@@ -21,6 +21,7 @@ from tkinter import ttk, messagebox
 
 import numpy as np
 import sounddevice as sd
+from scipy.signal import sosfilt
 
 HOSTAPI_PREF = ["Windows WASAPI", "MME", "Windows DirectSound", "Windows WDM-KS"]
 SR = 48000
@@ -29,6 +30,11 @@ MAXBUF = 60          # deeper ring buffer to absorb clock drift
 MIN_DB = -48.0
 MAX_DB = 3.0
 SEGS = 30
+
+# 10-band graphic EQ
+EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+EQ_Q = 1.4
+EQ_RANGE = 12.0  # +/- dB
 
 
 def hostapi_name(i):
@@ -73,6 +79,39 @@ def bal_text(x):  # x in -100..100
     return "C" if n == 0 else (f"L{-n}" if n < 0 else f"R{n}")
 
 
+def eq_flabel(f):
+    return f"{f // 1000}k" if f >= 1000 else str(f)
+
+
+def chan_text(v):  # per-output balance label: v in -100..100
+    n = int(round(v))
+    if n <= -98:
+        return "Л"
+    if n >= 98:
+        return "П"
+    if -2 <= n <= 2:
+        return "микс"
+    return f"{n:+d}"
+
+
+def _peaking_sos(f0, q, gain_db, fs):
+    A = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * np.pi * f0 / fs
+    cw, sw = np.cos(w0), np.sin(w0)
+    alpha = sw / (2.0 * q)
+    b0 = 1 + alpha * A
+    b1 = -2 * cw
+    b2 = 1 - alpha * A
+    a0 = 1 + alpha / A
+    a1 = -2 * cw
+    a2 = 1 - alpha / A
+    return [b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]
+
+
+def build_eq_sos(gains_db, fs):
+    return np.array([_peaking_sos(f, EQ_Q, g, fs) for f, g in zip(EQ_FREQS, gains_db)], dtype=np.float64)
+
+
 class Source:
     _n = 0
 
@@ -84,11 +123,16 @@ class Source:
         self.vol = 1.0
         self.bal = 0.0
         self.mute = False
-        # runtime
-        self.qL = None
-        self.qR = None
-        self.bufL = np.zeros(0, dtype=np.float32)
-        self.bufR = np.zeros(0, dtype=np.float32)
+        # routing
+        self.width = 0.0   # 0 = channels separate (L->left, R->right); 1 = full mono
+        self.inv = False   # invert phase of the RIGHT channel
+        self.in_peakL = 0.0
+        self.in_peakR = 0.0
+        # runtime (each queue holds stereo blocks)
+        self.qA = None     # feeds LEFT output
+        self.qB = None     # feeds RIGHT output
+        self.bufA = np.zeros((0, 2), dtype=np.float32)
+        self.bufB = np.zeros((0, 2), dtype=np.float32)
         self.stream = None
 
 
@@ -101,6 +145,13 @@ class Engine:
         self.test_left = True
         self.test_right = True
         self.master = 1.0
+        # 10-band EQ
+        self.eq_on = False
+        self.eq_gains = [0.0] * len(EQ_FREQS)
+        self.eq_sos = build_eq_sos(self.eq_gains, SR)
+        # per-output channel balance: -1 = play LEFT input channel, +1 = play RIGHT, 0 = mono mix
+        self.balL = -1.0   # left speaker  -> left channel by default
+        self.balR = 1.0    # right speaker -> right channel by default
         self.busL = 1.0
         self.busR = 1.0
         self.peakL = 0.0
@@ -108,21 +159,24 @@ class Engine:
         self._ph = [0, 0]
         self.tone = [440.0, 660.0]
 
+    def build_eq(self):
+        self.eq_sos = build_eq_sos(self.eq_gains, SR)
+
     def _pull(self, src, left, frames):
-        q = src.qL if left else src.qR
-        b = src.bufL if left else src.bufR
+        q = src.qA if left else src.qB
+        b = src.bufA if left else src.bufB
         while b.shape[0] < frames:
             try:
                 b = np.concatenate([b, q.get_nowait()])
             except queue.Empty:
-                b = np.concatenate([b, np.zeros(frames - b.shape[0], dtype=np.float32)])
+                b = np.concatenate([b, np.zeros((frames - b.shape[0], 2), dtype=np.float32)])
                 break
         block = b[:frames]
         if left:
-            src.bufL = b[frames:]
+            src.bufA = b[frames:]
         else:
-            src.bufR = b[frames:]
-        return block
+            src.bufB = b[frames:]
+        return block  # (frames, 2)
 
     def _out_cb(self, left):
         ch_idx = 0 if left else 1
@@ -137,18 +191,24 @@ class Engine:
                 else:
                     mix = np.zeros(frames, dtype=np.float32)
             else:
-                mix = np.zeros(frames, dtype=np.float32)
+                sumL = np.zeros(frames, dtype=np.float32)
+                sumR = np.zeros(frames, dtype=np.float32)
                 for src in self.sources:
+                    block = self._pull(src, left, frames)  # (frames, 2)
                     if src.mute:
-                        # still drain to keep latency bounded
-                        self._pull(src, left, frames)
                         continue
-                    block = self._pull(src, left, frames)
-                    lg, rg = lr_gains(src.bal)
-                    g = src.vol * (lg if left else rg)
-                    if g:
-                        mix += block * g
+                    v = src.vol
+                    sumL = sumL + block[:, 0] * v
+                    sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * v
+                b = self.balL if left else self.balR   # -1 = L channel, +1 = R channel, 0 = mono
+                mix = sumL * (0.5 - b * 0.5) + sumR * (0.5 + b * 0.5)
             mix = mix * (self.busL if left else self.busR) * self.master
+            sos = self.eq_sos
+            if self.eq_on and sos is not None:
+                if state["zi"] is None or state["zi"].shape[0] != sos.shape[0]:
+                    state["zi"] = np.zeros((sos.shape[0], 2))
+                mix, state["zi"] = sosfilt(sos, mix, zi=state["zi"])
+            mix = mix.astype(np.float32)
             peak = float(np.max(np.abs(mix))) if mix.size else 0.0
             if left:
                 self.peakL = peak
@@ -167,21 +227,26 @@ class Engine:
         try:
             if not test:
                 for src in sources:
-                    src.qL = queue.Queue(MAXBUF)
-                    src.qR = queue.Queue(MAXBUF)
-                    src.bufL = np.zeros(0, dtype=np.float32)
-                    src.bufR = np.zeros(0, dtype=np.float32)
+                    src.qA = queue.Queue(MAXBUF)
+                    src.qB = queue.Queue(MAXBUF)
+                    src.bufA = np.zeros((0, 2), dtype=np.float32)
+                    src.bufB = np.zeros((0, 2), dtype=np.float32)
 
                     def make_in(s):
                         def in_cb(indata, frames, _t, _st):
-                            L = indata[:, 0].astype(np.float32).copy()
-                            R = indata[:, 1].astype(np.float32).copy() if indata.shape[1] > 1 else L.copy()
-                            for q, d in ((s.qL, L), (s.qR, R)):
+                            if indata.shape[1] > 1:
+                                blk = indata[:, :2].astype(np.float32).copy()
+                            else:
+                                mono = indata[:, 0].astype(np.float32)
+                                blk = np.column_stack([mono, mono])
+                            s.in_peakL = float(np.max(np.abs(blk[:, 0]))) if frames else 0.0
+                            s.in_peakR = float(np.max(np.abs(blk[:, 1]))) if frames else 0.0
+                            for q in (s.qA, s.qB):
                                 try:
-                                    q.put_nowait(d)
+                                    q.put_nowait(blk)
                                 except queue.Full:
                                     try:
-                                        q.get_nowait(); q.put_nowait(d)
+                                        q.get_nowait(); q.put_nowait(blk)
                                     except queue.Empty:
                                         pass
                         return in_cb
@@ -241,8 +306,8 @@ class App:
 
         root.title("CHANNEL SPLITTER")
         root.configure(bg=BG)
-        root.geometry("700x640")
-        root.minsize(660, 560)
+        root.geometry("760x860")
+        root.minsize(720, 760)
         self._style()
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -271,6 +336,7 @@ class App:
               selectbackground=[("readonly", PANEL)],
               selectforeground=[("readonly", FG)])
         s.configure("Horizontal.TScale", background=PANEL, troughcolor=BD)
+        s.configure("Vertical.TScale", background=PANEL, troughcolor=BD)
         self.root.option_add("*TCombobox*Listbox.background", PANEL)
         self.root.option_add("*TCombobox*Listbox.foreground", FG)
         self.root.option_add("*TCombobox*Listbox.selectBackground", ACC2)
@@ -297,14 +363,14 @@ class App:
 
         self.busL_var = tk.DoubleVar(value=100)
         self.busR_var = tk.DoubleVar(value=100)
-        self.left_cb, self.busL_lbl = self._build_out_strip(out, 1, 0, "🔊  ЛЕВАЯ  (A)", "Bob", self.busL_var, "busL", "L")
+        self.left_cb, self.busL_lbl = self._build_out_strip(out, 1, 0, "🔊  ЛЕВАЯ  (A)", "Bob", self.busL_var, "busL", "L", "balL", -100)
 
         mfr = ttk.Frame(out, style="Panel.TFrame")
         mfr.grid(row=1, column=1, padx=6, pady=4)
         self.meters = tk.Canvas(mfr, width=150, height=210, bg=PANEL, highlightthickness=0)
         self.meters.pack()
 
-        self.right_cb, self.busR_lbl = self._build_out_strip(out, 1, 2, "🔊  ПРАВАЯ  (B)", "JBL", self.busR_var, "busR", "R")
+        self.right_cb, self.busR_lbl = self._build_out_strip(out, 1, 2, "🔊  ПРАВАЯ  (B)", "JBL", self.busR_var, "busR", "R", "balR", 100)
 
         out.columnconfigure(0, weight=1)
         out.columnconfigure(2, weight=1)
@@ -319,8 +385,11 @@ class App:
         self.src_container.pack(fill="both", expand=True, padx=10, pady=4)
         hdr = ttk.Frame(self.src_container, style="Panel.TFrame")
         hdr.pack(fill="x", padx=8, pady=(6, 0))
-        for txt, w in (("Устройство", 34), ("Громк.", 12), ("Баланс ←L  R→", 18), ("", 6)):
+        for txt, w in (("Устройство", 34), ("Громкость", 16), ("Фаза / Mute", 16)):
             ttk.Label(hdr, text=txt, style="Sub.TLabel", width=w, anchor="w").pack(side="left", padx=2)
+
+        # ── Equalizer (bottom) ──
+        self._build_eq()
 
         # ── Transport ──
         tr = ttk.Frame(self.root)
@@ -339,13 +408,14 @@ class App:
         # one source by default
         self.add_source_row(default_sub="CABLE Output")
 
-    def _build_out_strip(self, parent, row, col, title, default_sub, vol_var, bus_attr, side):
+    def _build_out_strip(self, parent, row, col, title, default_sub, vol_var, bus_attr, side, bal_attr, default_bal):
         f = ttk.Frame(parent, style="Panel.TFrame")
         f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
         ttk.Label(f, text=title, background=PANEL, foreground=ACC, font=FONT_B).pack(anchor="w")
         cb = ttk.Combobox(f, values=self._out_labels(), state="readonly", font=FONT)
         cb.pack(fill="x", pady=(4, 6))
         self._select_default(cb, self.out_devs, default_sub)
+
         vr = ttk.Frame(f, style="Panel.TFrame")
         vr.pack(fill="x")
         ttk.Label(vr, text="ГРОМК.", background=PANEL, foreground=SUB).pack(side="left")
@@ -353,7 +423,20 @@ class App:
                   command=lambda v, a=bus_attr: setattr(self.engine, a, float(v) / 100)).pack(side="left", fill="x", expand=True, padx=4)
         lbl = ttk.Label(vr, text="100%", background=PANEL, foreground=SUB, width=5)
         lbl.pack(side="left")
-        ttk.Button(f, text="🔊 Тест этой колонки", command=lambda s=side: self.test_side(s)).pack(fill="x", pady=(8, 2))
+
+        # per-output channel balance: ←Л … микс … П→
+        br = ttk.Frame(f, style="Panel.TFrame")
+        br.pack(fill="x", pady=(4, 0))
+        ttk.Label(br, text="КАНАЛ", background=PANEL, foreground=SUB).pack(side="left")
+        bal_var = tk.DoubleVar(value=default_bal)
+        blbl = ttk.Label(br, text=chan_text(default_bal), background=PANEL, foreground=ACC, width=6)
+        ttk.Scale(br, from_=-100, to=100, variable=bal_var, orient="horizontal",
+                  command=lambda v, a=bal_attr, var=bal_var, lb=blbl: (setattr(self.engine, a, var.get() / 100), lb.config(text=chan_text(var.get())))).pack(side="left", fill="x", expand=True, padx=4)
+        blbl.pack(side="left")
+        ttk.Label(f, text="←Л   микс   П→", background=PANEL, foreground=SUB).pack(anchor="center")
+        setattr(self.engine, bal_attr, default_bal / 100)
+
+        ttk.Button(f, text="🔊 Тест этой колонки", command=lambda s=side: self.test_side(s)).pack(fill="x", pady=(6, 2))
         return cb, lbl
 
     def _select_default(self, cb, devlist, sub):
@@ -391,11 +474,9 @@ class App:
                   command=lambda *_a, s=src, var=vol, lbl=vlbl: (setattr(s, "vol", var.get() / 100), lbl.config(text=f"{int(var.get())}%"))).pack(side="left", padx=2)
         vlbl.pack(side="left", padx=(0, 6))
 
-        bal = tk.DoubleVar(value=0)
-        blbl = ttk.Label(row, text="C", background=PANEL, foreground=FG, width=5)
-        ttk.Scale(row, from_=-100, to=100, variable=bal, orient="horizontal", length=130,
-                  command=lambda *_a, s=src, var=bal, lbl=blbl: (setattr(s, "bal", var.get() / 100), lbl.config(text=bal_text(var.get())))).pack(side="left", padx=2)
-        blbl.pack(side="left", padx=(0, 6))
+        inv = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="Ø фаза", variable=inv,
+                        command=lambda s=src, var=inv: setattr(s, "inv", var.get())).pack(side="left", padx=6)
 
         mute = tk.BooleanVar(value=False)
         ttk.Checkbutton(row, text="M", variable=mute,
@@ -410,6 +491,44 @@ class App:
             self.sources.remove(src)
         self.src_rows = [r for r in self.src_rows if r["src"] is not src]
         row.destroy()
+
+    def _build_eq(self):
+        f = ttk.Frame(self.root, style="Panel.TFrame")
+        f.pack(fill="x", padx=10, pady=4)
+        hdr = ttk.Frame(f, style="Panel.TFrame")
+        hdr.pack(fill="x", pady=(4, 0))
+        ttk.Label(hdr, text="ЭКВАЛАЙЗЕР · 10 ПОЛОС", style="Head.TLabel").pack(side="left", padx=(6, 10))
+        self.eq_on_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(hdr, text="Вкл", variable=self.eq_on_var,
+                        command=lambda: setattr(self.engine, "eq_on", self.eq_on_var.get())).pack(side="left")
+        ttk.Button(hdr, text="Сброс", command=self._eq_reset).pack(side="left", padx=8)
+        band = ttk.Frame(f, style="Panel.TFrame")
+        band.pack(fill="x", pady=(2, 6))
+        self.eq_vars = []
+        self.eq_lbls = []
+        for i, fr in enumerate(EQ_FREQS):
+            col = ttk.Frame(band, style="Panel.TFrame")
+            col.pack(side="left", expand=True, fill="x")
+            ttk.Label(col, text=eq_flabel(fr), style="Sub.TLabel").pack()
+            var = tk.DoubleVar(value=0)
+            ttk.Scale(col, from_=EQ_RANGE, to=-EQ_RANGE, orient="vertical", length=96, variable=var,
+                      command=lambda v, i=i, var=var: self._on_eq(i, var)).pack()
+            lb = ttk.Label(col, text="0", background=PANEL, foreground=FG)
+            lb.pack()
+            self.eq_vars.append(var)
+            self.eq_lbls.append(lb)
+
+    def _on_eq(self, i, var):
+        self.engine.eq_gains[i] = float(var.get())
+        self.engine.build_eq()
+        self.eq_lbls[i].config(text=f"{int(round(var.get())):+d}")
+
+    def _eq_reset(self):
+        for i, var in enumerate(self.eq_vars):
+            var.set(0)
+            self.engine.eq_gains[i] = 0.0
+            self.eq_lbls[i].config(text="0")
+        self.engine.build_eq()
 
     def refresh_devices(self):
         refresh_portaudio()
