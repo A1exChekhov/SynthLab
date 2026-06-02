@@ -565,17 +565,13 @@ class App:
                                 relief="flat", bd=1, font=FONT_B, padx=16, pady=2, cursor="hand2")
         self.eq_btn.pack(side="left")
         ttk.Button(hdr, text="Сброс", command=self._eq_reset).pack(side="left", padx=8)
-
-        # presets row (clearly visible)
-        pr = ttk.Frame(f, style="Panel.TFrame")
-        pr.pack(fill="x", pady=(4, 0))
-        ttk.Label(pr, text="ПРЕСЕТЫ:", background=PANEL, foreground=ACC, font=FONT_B).pack(side="left", padx=(6, 6))
-        self.eq_preset_cb = ttk.Combobox(pr, state="readonly", width=26, font=FONT, values=[])
-        self.eq_preset_cb.pack(side="left")
-        self.eq_preset_cb.bind("<<ComboboxSelected>>", lambda e: self._eq_apply_preset(self.eq_preset_cb.get()))
-        ttk.Button(pr, text="Загрузить", command=lambda: self._eq_apply_preset(self.eq_preset_cb.get())).pack(side="left", padx=6)
-        ttk.Button(pr, text="Сохранить", command=self._eq_save_preset).pack(side="left")
-        ttk.Button(pr, text="Удалить", command=self._eq_delete_preset).pack(side="left", padx=6)
+        self.eq_preset_mb = tk.Menubutton(hdr, text="Пресеты ▾", bg=PANEL, fg=FG,
+                                          activebackground=BD, activeforeground=FG, relief="flat",
+                                          bd=1, font=FONT, padx=10, pady=2, cursor="hand2")
+        self.eq_preset_menu = tk.Menu(self.eq_preset_mb, tearoff=0, bg=PANEL, fg=FG, activebackground=ACC2)
+        self.eq_preset_menu.configure(postcommand=self._eq_menu_post)
+        self.eq_preset_mb["menu"] = self.eq_preset_menu
+        self.eq_preset_mb.pack(side="left", padx=8)
 
         # effects: Bass Boost + Spatial
         fx = ttk.Frame(f, style="Panel.TFrame")
@@ -615,7 +611,6 @@ class App:
             self.eq_vars.append(var)
             self.eq_lbls.append(lb)
             self.eq_meters.append(mtr)
-        self._refresh_eq_presets()
 
     def _on_eq(self, i, var):
         v = var.get()
@@ -651,8 +646,22 @@ class App:
         except Exception:
             pass
 
-    def _refresh_eq_presets(self):
-        self.eq_preset_cb["values"] = list(self._load_eq_presets().keys())
+    def _eq_menu_post(self):
+        m = self.eq_preset_menu
+        m.delete(0, "end")
+        names = list(self._load_eq_presets().keys())
+        if names:
+            for n in names:
+                m.add_command(label=n, command=lambda nm=n: self._eq_apply_preset(nm))
+        else:
+            m.add_command(label="(нет пресетов)", state="disabled")
+        m.add_separator()
+        m.add_command(label="💾 Сохранить текущий…", command=self._eq_save_preset)
+        if names:
+            dm = tk.Menu(m, tearoff=0, bg=PANEL, fg=FG, activebackground=ACC2)
+            for n in names:
+                dm.add_command(label=n, command=lambda nm=n: self._eq_delete_preset(nm))
+            m.add_cascade(label="🗑 Удалить", menu=dm)
 
     def _eq_save_preset(self):
         name = simpledialog.askstring("Пресет EQ", "Название пресета:", parent=self.root)
@@ -661,19 +670,12 @@ class App:
         d = self._load_eq_presets()
         d[name] = {"gains": list(self.engine.eq_gains), "bass": self.engine.bass, "spatial": self.engine.spatial}
         self._save_eq_presets(d)
-        self._refresh_eq_presets()
-        self.eq_preset_cb.set(name)
 
-    def _eq_delete_preset(self):
-        name = self.eq_preset_cb.get()
-        if not name:
-            return
+    def _eq_delete_preset(self, name):
         d = self._load_eq_presets()
         if name in d:
             del d[name]
             self._save_eq_presets(d)
-            self._refresh_eq_presets()
-            self.eq_preset_cb.set("")
 
     def _eq_apply_preset(self, name):
         p = self._load_eq_presets().get(name)
