@@ -42,6 +42,10 @@ for _i, _f in enumerate(EQ_FREQS):
     _lo = (EQ_FREQS[_i - 1] * _f) ** 0.5 if _i > 0 else _f / 1.3
     _hi = (EQ_FREQS[_i + 1] * _f) ** 0.5 if _i < len(EQ_FREQS) - 1 else min(_f * 1.3, SR / 2 - 1)
     EQ_EDGES.append((_lo, _hi))
+# +3 dB/oct display tilt (relative to 250 Hz) so the spectrum bars are visually balanced
+EQ_TILT = [(_f / 250.0) ** 0.5 for _f in EQ_FREQS]
+SPEC_FLOOR = -60.0   # dB shown as empty bar
+SPEC_CEIL = -6.0     # dB shown as full bar
 
 
 def hostapi_name(i):
@@ -193,12 +197,12 @@ class Engine:
         n = x.shape[0]
         if n < 16:
             return
-        mag = np.abs(np.fft.rfft(x * np.hanning(n)))
+        mag = np.abs(np.fft.rfft(x * np.hanning(n))) / (n * 0.5)
         freqs = np.fft.rfftfreq(n, 1.0 / SR)
         sp = self.spectrum
         for i, (lo, hi) in enumerate(EQ_EDGES):
             m = (freqs >= lo) & (freqs < hi)
-            sp[i] = float(mag[m].mean()) if m.any() else 0.0
+            sp[i] = (float(mag[m].mean()) * EQ_TILT[i]) if m.any() else 0.0
 
     def _pull(self, src, left, frames):
         q = src.qA if left else src.qB
@@ -561,12 +565,17 @@ class App:
                                 relief="flat", bd=1, font=FONT_B, padx=16, pady=2, cursor="hand2")
         self.eq_btn.pack(side="left")
         ttk.Button(hdr, text="Сброс", command=self._eq_reset).pack(side="left", padx=8)
-        ttk.Label(hdr, text="Пресет:", background=PANEL, foreground=SUB).pack(side="left", padx=(14, 4))
-        self.eq_preset_cb = ttk.Combobox(hdr, state="readonly", width=16, font=FONT, values=[])
+
+        # presets row (clearly visible)
+        pr = ttk.Frame(f, style="Panel.TFrame")
+        pr.pack(fill="x", pady=(4, 0))
+        ttk.Label(pr, text="ПРЕСЕТЫ:", background=PANEL, foreground=ACC, font=FONT_B).pack(side="left", padx=(6, 6))
+        self.eq_preset_cb = ttk.Combobox(pr, state="readonly", width=26, font=FONT, values=[])
         self.eq_preset_cb.pack(side="left")
         self.eq_preset_cb.bind("<<ComboboxSelected>>", lambda e: self._eq_apply_preset(self.eq_preset_cb.get()))
-        ttk.Button(hdr, text="Сохранить", command=self._eq_save_preset).pack(side="left", padx=6)
-        ttk.Button(hdr, text="Удалить", command=self._eq_delete_preset).pack(side="left")
+        ttk.Button(pr, text="Загрузить", command=lambda: self._eq_apply_preset(self.eq_preset_cb.get())).pack(side="left", padx=6)
+        ttk.Button(pr, text="Сохранить", command=self._eq_save_preset).pack(side="left")
+        ttk.Button(pr, text="Удалить", command=self._eq_delete_preset).pack(side="left", padx=6)
 
         # effects: Bass Boost + Spatial
         fx = ttk.Frame(f, style="Panel.TFrame")
@@ -839,18 +848,19 @@ class App:
             self._meter_disp[i] = max(pk, self._meter_disp[i] * 0.80)
             self._meter_hold[i] = pk if pk >= self._meter_hold[i] else max(pk, self._meter_hold[i] - 0.006)
         self._draw_meters()
-        # EQ per-band spectrum bars
+        # EQ per-band spectrum bars (dB scale, balanced via tilt)
         sp = self.engine.spectrum
-        self._spec_disp = np.maximum(sp, self._spec_disp * 0.7)
-        mx = float(self._spec_disp.max()) if self._spec_disp.size else 0.0
-        norm = mx if mx > 1e-9 else 1.0
+        self._spec_disp = np.maximum(sp, self._spec_disp * 0.8)
+        span = SPEC_CEIL - SPEC_FLOOR
         for i, cv in enumerate(getattr(self, "eq_meters", [])):
-            lvl = min(1.0, self._spec_disp[i] / norm)
+            db = 20.0 * np.log10(self._spec_disp[i] + 1e-9)
+            lvl = max(0.0, min(1.0, (db - SPEC_FLOOR) / span))
             cv.delete("all")
             h = cv.winfo_height() or 130
             w = cv.winfo_width() or 7
             bh = int(h * lvl)
-            cv.create_rectangle(0, h - bh, w, h, fill=ACC, width=0)
+            col = ACC if lvl < 0.8 else "#ffd166"
+            cv.create_rectangle(0, h - bh, w, h, fill=col, width=0)
         self.root.after(60, self._tick)
 
     def on_close(self):
