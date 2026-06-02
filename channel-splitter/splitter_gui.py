@@ -24,8 +24,8 @@ import sounddevice as sd
 
 HOSTAPI_PREF = ["Windows WASAPI", "MME", "Windows DirectSound", "Windows WDM-KS"]
 SR = 48000
-BLOCK = 480
-MAXBUF = 32
+BLOCK = 960          # ~20 ms blocks — fewer glitches with Bluetooth
+MAXBUF = 60          # deeper ring buffer to absorb clock drift
 MIN_DB = -48.0
 MAX_DB = 3.0
 SEGS = 30
