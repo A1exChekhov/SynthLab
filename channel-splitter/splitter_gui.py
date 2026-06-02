@@ -23,7 +23,7 @@ from tkinter import ttk, messagebox, simpledialog
 
 import numpy as np
 import sounddevice as sd
-from scipy.signal import sosfilt
+from scipy.signal import sosfilt, butter
 
 HOSTAPI_PREF = ["Windows WASAPI", "MME", "Windows DirectSound", "Windows WDM-KS"]
 SR = 48000
@@ -160,17 +160,40 @@ class Source:
         self.vol = 1.0
         self.bal = 0.0
         self.mute = False
-        # routing
-        self.width = 0.0   # 0 = channels separate (L->left, R->right); 1 = full mono
         self.inv = False   # invert phase of the RIGHT channel
         self.in_peakL = 0.0
         self.in_peakR = 0.0
-        # runtime (each queue holds stereo blocks)
-        self.qA = None     # feeds LEFT output
-        self.qB = None     # feeds RIGHT output
-        self.bufA = np.zeros((0, 2), dtype=np.float32)
-        self.bufB = np.zeros((0, 2), dtype=np.float32)
+        # runtime: one stereo queue per output speaker id
+        self.queues = {}   # out_id -> queue.Queue
+        self.bufs = {}     # out_id -> ndarray (n, 2)
         self.stream = None
+
+
+class OutputSpk:
+    """One physical output speaker (or subwoofer) in the party rack."""
+    _n = 0
+
+    def __init__(self, idx, name):
+        OutputSpk._n += 1
+        self.id = OutputSpk._n
+        self.idx = idx
+        self.name = name
+        self.bal = -1.0      # -1 = LEFT channel, 0 = mono, +1 = RIGHT channel
+        self.vol = 1.0
+        self.mute = False
+        self.is_sub = False  # subwoofer => low-pass crossover (bass only)
+        self.xover = 120.0   # crossover Hz for sub
+        self.test_on = True
+        self.peak = 0.0
+        self.sos = None      # crossover sos
+        self.stream = None
+
+    def build_filter(self):
+        if self.is_sub:
+            fc = max(40.0, min(self.xover, SR / 2 - 1))
+            self.sos = butter(4, fc / (SR / 2), btype="low", output="sos")
+        else:
+            self.sos = None
 
 
 class Engine:
@@ -193,15 +216,8 @@ class Engine:
         self.spectrum = np.zeros(len(EQ_FREQS), dtype=np.float64)
         self.eq_sos = None
         self.build_eq()
-        # per-output channel balance: -1 = play LEFT input channel, +1 = play RIGHT, 0 = mono mix
-        self.balL = -1.0   # left speaker  -> left channel by default
-        self.balR = 1.0    # right speaker -> right channel by default
-        self.busL = 1.0
-        self.busR = 1.0
-        self.peakL = 0.0
-        self.peakR = 0.0
-        self._ph = [0, 0]
-        self.tone = [440.0, 660.0]
+        self.outputs = []        # list[OutputSpk]
+        self._spec_src = None    # output whose signal feeds the EQ spectrum
 
     def build_eq(self):
         rows = []
@@ -262,9 +278,11 @@ class Engine:
             m = (freqs >= lo) & (freqs < hi)
             sp[i] = (float(mag[m].mean()) * EQ_TILT[i]) if m.any() else 0.0
 
-    def _pull(self, src, left, frames):
-        q = src.qA if left else src.qB
-        b = src.bufA if left else src.bufB
+    def _pull(self, src, oid, frames):
+        q = src.queues.get(oid)
+        b = src.bufs.get(oid)
+        if q is None or b is None:
+            return np.zeros((frames, 2), dtype=np.float32)
         while b.shape[0] < frames:
             try:
                 b = np.concatenate([b, q.get_nowait()])
@@ -272,70 +290,70 @@ class Engine:
                 b = np.concatenate([b, np.zeros((frames - b.shape[0], 2), dtype=np.float32)])
                 break
         block = b[:frames]
-        if left:
-            src.bufA = b[frames:]
-        else:
-            src.bufB = b[frames:]
+        src.bufs[oid] = b[frames:]
         return block  # (frames, 2)
 
-    def _out_cb(self, left):
-        ch_idx = 0 if left else 1
-        state = {"zi": None}
+    def _out_cb(self, out, tone_hz):
+        state = {"eqzi": None, "xzi": None, "sp": {}, "ph": 0}
 
         def cb(outdata, frames, _t, _s):
             if self.test:
-                on = self.test_left if left else self.test_right
-                if on:
-                    tt = (self._ph[ch_idx] + np.arange(frames)) / SR
-                    self._ph[ch_idx] += frames
-                    mix = (0.2 * np.sin(2 * np.pi * self.tone[ch_idx] * tt)).astype(np.float32)
+                if out.test_on:
+                    tt = (state["ph"] + np.arange(frames)) / SR
+                    state["ph"] += frames
+                    mix = (0.2 * np.sin(2 * np.pi * tone_hz * tt)).astype(np.float32)
                 else:
                     mix = np.zeros(frames, dtype=np.float32)
             else:
                 sumL = np.zeros(frames, dtype=np.float32)
                 sumR = np.zeros(frames, dtype=np.float32)
                 for src in self.sources:
-                    block = self._pull(src, left, frames)  # (frames, 2)
+                    block = self._pull(src, out.id, frames)
                     if src.mute:
                         continue
                     lg, rg = lr_gains(src.bal)
                     v = src.vol
                     sumL = sumL + block[:, 0] * (v * lg)
                     sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * (v * rg)
-                sumL, sumR = self._apply_spatial(state, sumL, sumR, frames)
-                b = self.balL if left else self.balR   # -1 = L channel, +1 = R channel, 0 = mono
+                sumL, sumR = self._apply_spatial(state["sp"], sumL, sumR, frames)
+                b = out.bal
                 mix = sumL * (0.5 - b * 0.5) + sumR * (0.5 + b * 0.5)
-            mix = mix * (self.busL if left else self.busR) * self.master
-            sos = self.eq_sos
-            if sos is not None and sos.shape[0] > 0:
-                if state["zi"] is None or state["zi"].shape[0] != sos.shape[0]:
-                    state["zi"] = np.zeros((sos.shape[0], 2))
-                mix, state["zi"] = sosfilt(sos, mix, zi=state["zi"])
-            mix = mix.astype(np.float32)
-            if left:
+            # global EQ on full-range speakers only
+            if not out.is_sub:
+                sos = self.eq_sos
+                if sos is not None and sos.shape[0] > 0:
+                    if state["eqzi"] is None or state["eqzi"].shape[0] != sos.shape[0]:
+                        state["eqzi"] = np.zeros((sos.shape[0], 2))
+                    mix, state["eqzi"] = sosfilt(sos, mix, zi=state["eqzi"])
+            # subwoofer crossover (low-pass)
+            xs = out.sos
+            if xs is not None:
+                if state["xzi"] is None or state["xzi"].shape[0] != xs.shape[0]:
+                    state["xzi"] = np.zeros((xs.shape[0], 2))
+                mix, state["xzi"] = sosfilt(xs, mix, zi=state["xzi"])
+            g = 0.0 if out.mute else out.vol
+            mix = (mix * g * self.master).astype(np.float32)
+            if out is self._spec_src:
                 self._update_spectrum(mix)
-            peak = float(np.max(np.abs(mix))) if mix.size else 0.0
-            if left:
-                self.peakL = peak
-            else:
-                self.peakR = peak
+            out.peak = float(np.max(np.abs(mix))) if mix.size else 0.0
             outdata[:] = np.repeat(mix.reshape(-1, 1), outdata.shape[1], axis=1)
 
         return cb
 
-    def start(self, sources, left_idx, right_idx, test=False):
+    def start(self, sources, outputs, test=False):
         self.stop()
         self.sources = sources
+        self.outputs = outputs
         self.test = test
-        self._ph = [0, 0]
+        self._spec_src = next((o for o in outputs if not o.is_sub), outputs[0] if outputs else None)
+        for o in outputs:
+            o.build_filter()
         streams = []
         try:
             if not test:
                 for src in sources:
-                    src.qA = queue.Queue(MAXBUF)
-                    src.qB = queue.Queue(MAXBUF)
-                    src.bufA = np.zeros((0, 2), dtype=np.float32)
-                    src.bufB = np.zeros((0, 2), dtype=np.float32)
+                    src.queues = {o.id: queue.Queue(MAXBUF) for o in outputs}
+                    src.bufs = {o.id: np.zeros((0, 2), dtype=np.float32) for o in outputs}
 
                     def make_in(s):
                         def in_cb(indata, frames, _t, _st):
@@ -346,7 +364,7 @@ class Engine:
                                 blk = np.column_stack([mono, mono])
                             s.in_peakL = float(np.max(np.abs(blk[:, 0]))) if frames else 0.0
                             s.in_peakR = float(np.max(np.abs(blk[:, 1]))) if frames else 0.0
-                            for q in (s.qA, s.qB):
+                            for q in s.queues.values():
                                 try:
                                     q.put_nowait(blk)
                                 except queue.Full:
@@ -359,11 +377,11 @@ class Engine:
                     src.stream = sd.InputStream(device=src.idx, channels=2, samplerate=SR,
                                                 blocksize=BLOCK, dtype="float32", callback=make_in(src))
                     streams.append(src.stream)
-            outL = sd.OutputStream(device=left_idx, channels=2, samplerate=SR, blocksize=BLOCK,
-                                   dtype="float32", callback=self._out_cb(True))
-            outR = sd.OutputStream(device=right_idx, channels=2, samplerate=SR, blocksize=BLOCK,
-                                   dtype="float32", callback=self._out_cb(False))
-            streams += [outL, outR]
+            tones = [440.0, 660.0, 550.0, 330.0, 770.0, 220.0, 880.0, 494.0]
+            for i, o in enumerate(outputs):
+                o.stream = sd.OutputStream(device=o.idx, channels=2, samplerate=SR, blocksize=BLOCK,
+                                           dtype="float32", callback=self._out_cb(o, tones[i % len(tones)]))
+                streams.append(o.stream)
             for s in streams:
                 s.start()
         except Exception as e:
@@ -384,9 +402,11 @@ class Engine:
                 pass
         for src in self.sources:
             src.stream = None
+        for o in self.outputs:
+            o.stream = None
+            o.peak = 0.0
         self.streams = []
         self.running = False
-        self.peakL = self.peakR = 0.0
 
 
 # ───────────────────────── GUI ─────────────────────────
@@ -407,6 +427,8 @@ class App:
         self.engine = Engine()
         self.sources = []          # list[Source]
         self.src_rows = []         # list of widget dicts
+        self.outputs = []          # list[OutputSpk]
+        self.out_rows = []         # list of output widget dicts
         self.out_devs = devices(True)
         self.in_devs = devices(False)
         self._meter_disp = [0.0, 0.0]
@@ -469,24 +491,18 @@ class App:
         ttk.Label(head, text=f"by {BRAND}", foreground=ACC, background=BG, font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
         ttk.Label(head, text="L/R → две колонки · мультиисточник · баланс · EQ", foreground=SUB, background=BG).pack(side="left", padx=6)
 
-        # ── Outputs: LEFT strip | meters | RIGHT strip (Voicemeeter-style) ──
-        out = ttk.Frame(self.root, style="Panel.TFrame")
-        out.pack(fill="x", padx=10, pady=4)
-        ttk.Label(out, text="ВЫХОДЫ — КОЛОНКИ", style="Sub.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 2))
+        # ── Outputs (party rack): dynamic list of speakers / subwoofers ──
+        outhead = ttk.Frame(self.root)
+        outhead.pack(fill="x", padx=10, pady=(6, 0))
+        ttk.Label(outhead, text="ВЫХОДЫ — КОЛОНКИ", style="Head.TLabel").pack(side="left")
+        ttk.Button(outhead, text="+ Колонка", command=lambda: self.add_output_row()).pack(side="right")
 
-        self.busL_var = tk.DoubleVar(value=100)
-        self.busR_var = tk.DoubleVar(value=100)
-        self.left_cb, self.busL_lbl = self._build_out_strip(out, 1, 0, "🔊  ЛЕВАЯ  (A)", "Bob", self.busL_var, "busL", "L", "balL", -100)
-
-        mfr = ttk.Frame(out, style="Panel.TFrame")
-        mfr.grid(row=1, column=1, padx=6, pady=4)
-        self.meters = tk.Canvas(mfr, width=150, height=168, bg=PANEL, highlightthickness=0)
-        self.meters.pack()
-
-        self.right_cb, self.busR_lbl = self._build_out_strip(out, 1, 2, "🔊  ПРАВАЯ  (B)", "JBL", self.busR_var, "busR", "R", "balR", 100)
-
-        out.columnconfigure(0, weight=1)
-        out.columnconfigure(2, weight=1)
+        self.out_container = ttk.Frame(self.root, style="Panel.TFrame")
+        self.out_container.pack(fill="x", padx=10, pady=4)
+        ohdr = ttk.Frame(self.out_container, style="Panel.TFrame")
+        ohdr.pack(fill="x", padx=8, pady=(6, 0))
+        for txt, w in (("Устройство", 24), ("Канал", 8), ("Громк.", 12), ("Саб / Кроссовер", 16), ("Тест", 6), ("Ур.", 8)):
+            ttk.Label(ohdr, text=txt, style="Sub.TLabel", width=w, anchor="w").pack(side="left", padx=2)
 
         # ── Sources ──
         srchead = ttk.Frame(self.root)
@@ -519,44 +535,92 @@ class App:
         self.status = ttk.Label(tr, text="остановлено", foreground=SUB, background=BG)
         self.status.pack(side="right")
 
-        # one source by default
+        # defaults: one source + two speakers (Left/Right)
         self.add_source_row(default_sub="CABLE Output")
+        self.add_output_row(default_sub="Bob", role="Левый")
+        self.add_output_row(default_sub="JBL", role="Правый")
 
         # footer / license + developer
         ttk.Label(self.root,
                   text=f"© 2026 {BRAND}  ·  Channel Splitter v{APP_VERSION}  ·  разработчик: {DEVELOPER}  ·  все права защищены",
                   background=BG, foreground=SUB, font=("Segoe UI", 8)).pack(pady=(2, 4))
 
-    def _build_out_strip(self, parent, row, col, title, default_sub, vol_var, bus_attr, side, bal_attr, default_bal):
-        f = ttk.Frame(parent, style="Panel.TFrame")
-        f.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-        ttk.Label(f, text=title, background=PANEL, foreground=ACC, font=FONT_B).pack(anchor="w")
-        cb = ttk.Combobox(f, values=self._out_labels(), state="readonly", font=FONT)
-        cb.pack(fill="x", pady=(4, 6))
-        self._select_default(cb, self.out_devs, default_sub)
+    ROLE_BAL = {"Левый": -1.0, "Моно": 0.0, "Правый": 1.0}
 
-        vr = ttk.Frame(f, style="Panel.TFrame")
-        vr.pack(fill="x")
-        ttk.Label(vr, text="ГРОМК.", background=PANEL, foreground=SUB).pack(side="left")
-        ttk.Scale(vr, from_=0, to=150, variable=vol_var, orient="horizontal",
-                  command=lambda v, a=bus_attr: setattr(self.engine, a, float(v) / 100)).pack(side="left", fill="x", expand=True, padx=4)
-        lbl = ttk.Label(vr, text="100%", background=PANEL, foreground=SUB, width=5)
-        lbl.pack(side="left")
+    def add_output_row(self, default_sub=None, role="Левый"):
+        spk = OutputSpk(0, "")
+        spk.bal = self.ROLE_BAL.get(role, -1.0)
+        self.outputs.append(spk)
+        row = ttk.Frame(self.out_container, style="Panel.TFrame")
+        row.pack(fill="x", padx=8, pady=3)
 
-        ttk.Button(f, text="🔊 Тест этой колонки", command=lambda s=side: self.test_side(s)).pack(fill="x", pady=(6, 4))
+        cb = ttk.Combobox(row, values=self._out_labels(), state="readonly", width=24, font=FONT)
+        cb.pack(side="left", padx=2)
+        if default_sub:
+            self._select_default(cb, self.out_devs, default_sub)
+        elif self.out_devs:
+            cb.current(0)
 
-        # per-output channel balance (under the test button): ←Л … микс … П→
-        br = ttk.Frame(f, style="Panel.TFrame")
-        br.pack(fill="x")
-        ttk.Label(br, text="КАНАЛ", background=PANEL, foreground=SUB).pack(side="left")
-        bal_var = tk.DoubleVar(value=default_bal)
-        blbl = ttk.Label(br, text=chan_text(default_bal), background=PANEL, foreground=ACC, width=6)
-        ttk.Scale(br, from_=-100, to=100, variable=bal_var, orient="horizontal",
-                  command=lambda v, a=bal_attr, var=bal_var, lb=blbl: (setattr(self.engine, a, var.get() / 100), lb.config(text=chan_text(var.get())))).pack(side="left", fill="x", expand=True, padx=4)
-        blbl.pack(side="left")
-        ttk.Label(f, text="←Л   микс   П→", background=PANEL, foreground=SUB).pack(anchor="center")
-        setattr(self.engine, bal_attr, default_bal / 100)
-        return cb, lbl
+        rolev = tk.StringVar(value=role)
+        rcb = ttk.Combobox(row, values=list(self.ROLE_BAL.keys()), state="readonly", width=7, font=FONT, textvariable=rolev)
+        rcb.pack(side="left", padx=2)
+        rcb.bind("<<ComboboxSelected>>", lambda e, s=spk, var=rolev: setattr(s, "bal", self.ROLE_BAL[var.get()]))
+
+        vol = tk.DoubleVar(value=100)
+        ttk.Scale(row, from_=0, to=150, variable=vol, orient="horizontal", length=90,
+                  command=lambda v, s=spk, var=vol: setattr(s, "vol", var.get() / 100)).pack(side="left", padx=2)
+
+        subv = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="SUB", variable=subv,
+                        command=lambda s=spk, var=subv: (setattr(s, "is_sub", var.get()), s.build_filter())).pack(side="left", padx=2)
+        xv = tk.IntVar(value=120)
+        ttk.Spinbox(row, from_=40, to=300, increment=10, width=5, textvariable=xv,
+                    command=lambda s=spk, var=xv: (setattr(s, "xover", float(var.get())), s.build_filter())).pack(side="left", padx=2)
+        ttk.Label(row, text="Гц", background=PANEL, foreground=SUB).pack(side="left")
+
+        ttk.Button(row, text="🔊", width=3, command=lambda s=spk: self.test_output(s)).pack(side="left", padx=4)
+
+        mtr = tk.Canvas(row, width=50, height=12, bg=BD, highlightthickness=0)
+        mtr.pack(side="left", padx=4)
+
+        ttk.Button(row, text="✕", width=2, command=lambda: self.remove_output(spk, row)).pack(side="left", padx=2)
+
+        self.out_rows.append({"spk": spk, "cb": cb, "mtr": mtr})
+
+    def remove_output(self, spk, row):
+        if spk in self.outputs:
+            self.outputs.remove(spk)
+        self.out_rows = [r for r in self.out_rows if r["spk"] is not spk]
+        row.destroy()
+
+    def _resolve_outputs(self):
+        outs = []
+        for r in self.out_rows:
+            idx = self._combo_idx(r["cb"], self.out_devs)
+            if idx is None:
+                continue
+            r["spk"].idx = idx
+            r["spk"].name = r["cb"].get()
+            outs.append(r["spk"])
+        return outs
+
+    def test_output(self, spk):
+        outs = self._resolve_outputs()
+        if not outs:
+            messagebox.showerror("Splitter", "Добавь колонку.")
+            return
+        for o in outs:
+            o.test_on = (o is spk)
+        try:
+            self.engine.start([], outs, test=True)
+        except Exception as e:
+            messagebox.showerror("Splitter", f"Ошибка теста:\n{e}")
+            return
+        self._set_run_btn(True)
+        self.status.config(text=f"тест: {spk.name[:24]}")
+        self._test_token += 1
+        tok = self._test_token
+        self.root.after(1800, lambda: self._auto_stop_test(tok))
 
     def _select_default(self, cb, devlist, sub):
         idx = find_default(sub, want_output=(devlist is self.out_devs))
@@ -820,10 +884,8 @@ class App:
             pass
         self.out_devs = devices(True)
         self.in_devs = devices(False)
-        self.left_cb["values"] = self._out_labels()
-        self.right_cb["values"] = self._out_labels()
-        self._select_default(self.left_cb, self.out_devs, "Bob")
-        self._select_default(self.right_cb, self.out_devs, "JBL")
+        for r in self.out_rows:
+            r["cb"]["values"] = self._out_labels()
         for r in self.src_rows:
             r["cb"]["values"] = self._in_labels()
         self.status.config(text="устройства обновлены")
@@ -846,45 +908,23 @@ class App:
             self._set_run_btn(False)
             self.status.config(text="остановлено")
             return
-        left = self._combo_idx(self.left_cb, self.out_devs)
-        right = self._combo_idx(self.right_cb, self.out_devs)
-        if left is None or right is None:
-            messagebox.showerror("Splitter", "Выбери обе колонки (ЛЕВАЯ/ПРАВАЯ).")
+        outs = self._resolve_outputs()
+        if not outs:
+            messagebox.showerror("Splitter", "Добавь хотя бы одну колонку.")
             return
         srcs = self._resolve_sources()
         if not srcs:
             messagebox.showerror("Splitter", "Добавь хотя бы один источник.")
             return
+        for o in outs:
+            o.test_on = True
         try:
-            self.engine.start(srcs, left, right, test=False)
+            self.engine.start(srcs, outs, test=False)
         except Exception as e:
-            messagebox.showerror("Splitter", f"Не удалось запустить:\n{e}\n\nПопробуй другой источник/колонку или ⟳ Устройства.")
+            messagebox.showerror("Splitter", f"Не удалось запустить:\n{e}\n\nПопробуй другое устройство или ⟳ Устройства.")
             return
         self._set_run_btn(True)
         self.status.config(text="играет")
-
-    def test_side(self, side):
-        left = self._combo_idx(self.left_cb, self.out_devs)
-        right = self._combo_idx(self.right_cb, self.out_devs)
-        if left is None or right is None:
-            messagebox.showerror("Splitter", "Выбери обе колонки.")
-            return
-        self.engine.test_left = side in ("L", "both")
-        self.engine.test_right = side in ("R", "both")
-        try:
-            self.engine.start([], left, right, test=True)
-        except Exception as e:
-            messagebox.showerror("Splitter", f"Ошибка теста:\n{e}")
-            return
-        self._set_run_btn(True)
-        txt = {"L": "ТЕСТ → только ЛЕВАЯ (440 Гц)",
-               "R": "ТЕСТ → только ПРАВАЯ (660 Гц)",
-               "both": "ТЕСТ → L=440 / R=660"}[side]
-        self.status.config(text=txt)
-        # auto-stop the short test beep
-        self._test_token += 1
-        tok = self._test_token
-        self.root.after(1800, lambda: self._auto_stop_test(tok))
 
     def _auto_stop_test(self, tok):
         if tok == self._test_token and self.engine.running and self.engine.test:
@@ -892,66 +932,16 @@ class App:
             self._set_run_btn(False)
             self.status.config(text="остановлено")
 
-    @staticmethod
-    def _to_db(lvl):
-        if lvl <= 1e-6:
-            return MIN_DB
-        return max(MIN_DB, min(MAX_DB, 20.0 * math.log10(lvl)))
-
-    @staticmethod
-    def _frac(db):
-        return (db - MIN_DB) / (MAX_DB - MIN_DB)
-
-    def _draw_meters(self):
-        c = self.meters
-        c.delete("all")
-        W = c.winfo_width() or 150
-        H = c.winfo_height() or 210
-        top, bot = 18, H - 24
-        barH = bot - top
-        barW = 30
-        cx = W / 2
-        gutter = 46
-        xL = cx - gutter / 2 - barW
-        xR = cx + gutter / 2
-
-        # dB scale in the centre gutter
-        for db in (0, -6, -12, -18, -24, -36, -48):
-            y = bot - self._frac(db) * barH
-            c.create_text(cx, y, text=str(db), fill=SUB, font=("Consolas", 7))
-            c.create_line(xL + barW, y, xL + barW + 4, y, fill=BD)
-            c.create_line(xR - 4, y, xR, y, fill=BD)
-
-        bars = ((xL, self._meter_disp[0], self._meter_hold[0], "A", "ЛЕВАЯ"),
-                (xR, self._meter_disp[1], self._meter_hold[1], "B", "ПРАВАЯ"))
-        for x, lvl, hold, name, cap in bars:
-            db = self._to_db(lvl)
-            litf = self._frac(db)
-            for k in range(SEGS):
-                segf = (k + 0.5) / SEGS
-                seg_db = MIN_DB + segf * (MAX_DB - MIN_DB)
-                y0 = bot - (k + 1) / SEGS * barH
-                y1 = bot - k / SEGS * barH
-                if segf <= litf:
-                    col = RED if seg_db >= -3 else ("#ffd166" if seg_db >= -12 else ACC)
-                else:
-                    col = "#10141a"
-                c.create_rectangle(x, y0 + 1, x + barW, y1 - 1, fill=col, width=0)
-            # peak-hold marker
-            yh = bot - self._frac(self._to_db(hold)) * barH
-            c.create_line(x, yh, x + barW, yh, fill="#ffffff", width=1)
-            # captions + numeric dB
-            c.create_text(x + barW / 2, top - 8, text=("-inf" if db <= MIN_DB else f"{db:.1f}"), fill=FG, font=("Consolas", 8, "bold"))
-            c.create_text(x + barW / 2, bot + 7, text=name, fill=ACC, font=("Consolas", 9, "bold"))
-            c.create_text(x + barW / 2, bot + 16, text=cap, fill=SUB, font=("Consolas", 7))
-
     def _tick(self):
-        self.busL_lbl.config(text=f"{int(self.busL_var.get())}%")
-        self.busR_lbl.config(text=f"{int(self.busR_var.get())}%")
-        for i, pk in enumerate((self.engine.peakL, self.engine.peakR)):
-            self._meter_disp[i] = max(pk, self._meter_disp[i] * 0.80)
-            self._meter_hold[i] = pk if pk >= self._meter_hold[i] else max(pk, self._meter_hold[i] - 0.006)
-        self._draw_meters()
+        # per-output level meters (one bar per speaker row)
+        for r in self.out_rows:
+            cv = r["mtr"]
+            lvl = min(1.0, r["spk"].peak * 1.3)
+            cv.delete("all")
+            w = cv.winfo_width() or 50
+            h = cv.winfo_height() or 12
+            col = ACC if lvl < 0.8 else ("#ffd166" if lvl < 0.95 else RED)
+            cv.create_rectangle(0, 0, int(w * lvl), h, fill=col, width=0)
         # EQ per-band spectrum bars (dB scale, balanced via tilt)
         sp = self.engine.spectrum
         self._spec_disp = np.maximum(sp, self._spec_disp * 0.8)
