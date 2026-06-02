@@ -134,6 +134,21 @@ def _lowshelf_sos(f0, gain_db, fs, S=0.7):
     return [b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]
 
 
+def _highshelf_sos(f0, gain_db, fs, S=0.7):
+    A = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * np.pi * f0 / fs
+    cw, sw = np.cos(w0), np.sin(w0)
+    alpha = sw / 2.0 * np.sqrt((A + 1 / A) * (1 / S - 1) + 2)
+    tsa = 2.0 * np.sqrt(A) * alpha
+    b0 = A * ((A + 1) + (A - 1) * cw + tsa)
+    b1 = -2 * A * ((A - 1) + (A + 1) * cw)
+    b2 = A * ((A + 1) + (A - 1) * cw - tsa)
+    a0 = (A + 1) - (A - 1) * cw + tsa
+    a1 = 2 * ((A - 1) - (A + 1) * cw)
+    a2 = (A + 1) - (A - 1) * cw - tsa
+    return [b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]
+
+
 class Source:
     _n = 0
 
@@ -167,11 +182,14 @@ class Engine:
         self.test_left = True
         self.test_right = True
         self.master = 1.0
-        # EQ + effects
+        # EQ + effects (each effect has its own on/off)
         self.eq_on = False
         self.eq_gains = [0.0] * len(EQ_FREQS)
-        self.bass = 0.0       # low-shelf boost dB (Bass Boost)
-        self.spatial = 1.0    # stereo width factor (1.0 = off)
+        self.bass_on = False; self.bass = 0.0          # low-shelf 110 Hz (Bass Boost)
+        self.spatial_on = False; self.spatial = 1.0    # stereo width factor (1..2)
+        self.threeD_on = False; self.threeD = 0.0      # 3D depth 0..1 (crossfeed/Haas)
+        self.surround_on = False; self.surround = 0.0  # pseudo 7.1 surround 0..1 (early reflections)
+        self._spat_maxd = int(SR * 0.08) + 1
         self.spectrum = np.zeros(len(EQ_FREQS), dtype=np.float64)
         self.eq_sos = None
         self.build_eq()
@@ -189,9 +207,49 @@ class Engine:
         rows = []
         if self.eq_on:
             rows += [_peaking_sos(f, EQ_Q, g, SR) for f, g in zip(EQ_FREQS, self.eq_gains)]
-        if self.bass > 0:
+        if self.bass_on and self.bass > 0:
             rows.append(_lowshelf_sos(110.0, self.bass, SR))
         self.eq_sos = np.array(rows, dtype=np.float64) if rows else None
+
+    def _apply_spatial(self, st, sumL, sumR, frames):
+        if not (self.spatial_on or self.threeD_on or self.surround_on):
+            return sumL, sumR
+        MAXD = self._spat_maxd
+        if st.get("tL") is None or st["tL"].shape[0] != MAXD:
+            st["tL"] = np.zeros(MAXD, dtype=np.float32)
+            st["tR"] = np.zeros(MAXD, dtype=np.float32)
+        extL = np.concatenate([st["tL"], sumL.astype(np.float32)])
+        extR = np.concatenate([st["tR"], sumR.astype(np.float32)])
+
+        def d(ext, ms):
+            dly = int(SR * ms / 1000.0)
+            return ext[MAXD - dly: MAXD - dly + frames]
+
+        outL = sumL.copy()
+        outR = sumR.copy()
+        if self.spatial_on and self.spatial != 1.0:
+            w = self.spatial
+            mid = (outL + outR) * 0.5
+            side = (outL - outR) * 0.5 * w
+            outL = mid + side
+            outR = mid - side
+        if self.threeD_on and self.threeD > 0:
+            a = self.threeD
+            outL = outL + a * 0.6 * d(extR, 12.0)
+            outR = outR + a * 0.6 * d(extL, 12.0)
+        if self.surround_on and self.surround > 0:
+            a = self.surround
+            mext = (extL + extR) * 0.5
+
+            def dm(ms):
+                dly = int(SR * ms / 1000.0)
+                return mext[MAXD - dly: MAXD - dly + frames]
+
+            outL = outL + a * (0.45 * dm(19) + 0.35 * dm(29) + 0.28 * dm(41) + 0.22 * dm(57))
+            outR = outR + a * (0.45 * dm(23) + 0.33 * dm(33) + 0.26 * dm(47) + 0.20 * dm(61))
+        st["tL"] = extL[-MAXD:]
+        st["tR"] = extR[-MAXD:]
+        return outL.astype(np.float32), outR.astype(np.float32)
 
     def _update_spectrum(self, x):
         n = x.shape[0]
@@ -244,12 +302,7 @@ class Engine:
                     v = src.vol
                     sumL = sumL + block[:, 0] * (v * lg)
                     sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * (v * rg)
-                w = self.spatial
-                if w != 1.0:
-                    mid = (sumL + sumR) * 0.5
-                    side = (sumL - sumR) * 0.5 * w
-                    sumL = mid + side
-                    sumR = mid - side
+                sumL, sumR = self._apply_spatial(state, sumL, sumR, frames)
                 b = self.balL if left else self.balR   # -1 = L channel, +1 = R channel, 0 = mono
                 mix = sumL * (0.5 - b * 0.5) + sumR * (0.5 + b * 0.5)
             mix = mix * (self.busL if left else self.busR) * self.master
@@ -343,6 +396,10 @@ BD = "#2a2f37"; ACC = "#2dd36f"; ACC2 = "#0077b6"; RED = "#e63946"
 FONT = ("Segoe UI", 10)
 FONT_B = ("Segoe UI", 11, "bold")
 
+APP_VERSION = "1.0"
+BRAND = "Errarium™"
+DEVELOPER = "Errarium"
+
 
 class App:
     def __init__(self, root):
@@ -409,7 +466,8 @@ class App:
         head = ttk.Frame(self.root)
         head.pack(fill="x", **pad)
         ttk.Label(head, text="CHANNEL SPLITTER", style="Head.TLabel").pack(side="left")
-        ttk.Label(head, text="L/R → две колонки · мультиисточник · баланс", foreground=SUB, background=BG).pack(side="left", padx=10)
+        ttk.Label(head, text=f"by {BRAND}", foreground=ACC, background=BG, font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
+        ttk.Label(head, text="L/R → две колонки · мультиисточник · баланс · EQ", foreground=SUB, background=BG).pack(side="left", padx=6)
 
         # ── Outputs: LEFT strip | meters | RIGHT strip (Voicemeeter-style) ──
         out = ttk.Frame(self.root, style="Panel.TFrame")
@@ -449,10 +507,11 @@ class App:
         # ── Transport ──
         tr = ttk.Frame(self.root)
         tr.pack(fill="x", padx=10, pady=8)
-        self.start_btn = ttk.Button(tr, text="▶ СТАРТ", command=self.toggle)
+        self.start_btn = tk.Button(tr, text="○ OFF", command=self.toggle, bg=PANEL, fg=SUB,
+                                   activebackground=BD, activeforeground=FG, relief="flat", bd=1,
+                                   font=FONT_B, padx=20, pady=3, cursor="hand2")
         self.start_btn.pack(side="left")
-        ttk.Button(tr, text="Тест обе", command=lambda: self.test_side("both")).pack(side="left", padx=6)
-        ttk.Button(tr, text="⟳ Устройства", command=self.refresh_devices).pack(side="left")
+        ttk.Button(tr, text="⟳ Устройства", command=self.refresh_devices).pack(side="left", padx=8)
         ttk.Label(tr, text="МАСТЕР", foreground=SUB, background=BG).pack(side="left", padx=(16, 4))
         self.master_var = tk.DoubleVar(value=100)
         ttk.Scale(tr, from_=0, to=150, variable=self.master_var, orient="horizontal", length=140,
@@ -462,6 +521,11 @@ class App:
 
         # one source by default
         self.add_source_row(default_sub="CABLE Output")
+
+        # footer / license + developer
+        ttk.Label(self.root,
+                  text=f"© 2026 {BRAND}  ·  Channel Splitter v{APP_VERSION}  ·  разработчик: {DEVELOPER}  ·  все права защищены",
+                  background=BG, foreground=SUB, font=("Segoe UI", 8)).pack(pady=(2, 4))
 
     def _build_out_strip(self, parent, row, col, title, default_sub, vol_var, bus_attr, side, bal_attr, default_bal):
         f = ttk.Frame(parent, style="Panel.TFrame")
@@ -573,21 +637,44 @@ class App:
         self.eq_preset_mb["menu"] = self.eq_preset_menu
         self.eq_preset_mb.pack(side="left", padx=8)
 
-        # effects: Bass Boost + Spatial
+        # effects row: name on top, on/off switch to the right of the name, slider + value below
         fx = ttk.Frame(f, style="Panel.TFrame")
         fx.pack(fill="x", pady=(6, 2))
-        ttk.Label(fx, text="BASS BOOST", background=PANEL, foreground=ACC).pack(side="left", padx=(6, 4))
-        self.bass_var = tk.DoubleVar(value=0)
-        ttk.Scale(fx, from_=0, to=12, variable=self.bass_var, orient="horizontal", length=150,
-                  command=lambda v: self._on_bass()).pack(side="left")
-        self.bass_lbl = ttk.Label(fx, text="0 dB", background=PANEL, foreground=SUB, width=6)
-        self.bass_lbl.pack(side="left", padx=(2, 18))
-        ttk.Label(fx, text="SPATIAL", background=PANEL, foreground=ACC2).pack(side="left", padx=(6, 4))
-        self.spatial_var = tk.DoubleVar(value=0)
-        ttk.Scale(fx, from_=0, to=100, variable=self.spatial_var, orient="horizontal", length=150,
-                  command=lambda v: self._on_spatial()).pack(side="left")
-        self.spatial_lbl = ttk.Label(fx, text="0%", background=PANEL, foreground=SUB, width=6)
-        self.spatial_lbl.pack(side="left", padx=2)
+
+        def mk(name, color, lo, hi, on_cmd, amt_cmd):
+            col = ttk.Frame(fx, style="Panel.TFrame")
+            col.pack(side="left", expand=True, fill="x", padx=10)
+            top = ttk.Frame(col, style="Panel.TFrame")
+            top.pack()
+            ttk.Label(top, text=name, background=PANEL, foreground=color, font=FONT_B).pack(side="left")
+            onv = tk.BooleanVar(value=False)
+            ttk.Checkbutton(top, variable=onv, command=on_cmd).pack(side="left", padx=(6, 0))
+            var = tk.DoubleVar(value=0)
+            ttk.Scale(col, from_=lo, to=hi, variable=var, orient="horizontal", command=amt_cmd).pack(fill="x", pady=(2, 0))
+            lbl = ttk.Label(col, text="0", background=PANEL, foreground=SUB)
+            lbl.pack()
+            return onv, var, lbl
+
+        self.bass_onv, self.bass_var, self.bass_lbl = mk(
+            "BASS", ACC, 0, 12,
+            lambda: (setattr(self.engine, "bass_on", self.bass_onv.get()), self.engine.build_eq()),
+            lambda v: (setattr(self.engine, "bass", self.bass_var.get()), self.engine.build_eq(),
+                       self.bass_lbl.config(text=f"{int(self.bass_var.get())} dB")))
+        self.spatial_onv, self.spatial_var, self.spatial_lbl = mk(
+            "SPATIAL", ACC2, 0, 100,
+            lambda: setattr(self.engine, "spatial_on", self.spatial_onv.get()),
+            lambda v: (setattr(self.engine, "spatial", 1.0 + self.spatial_var.get() / 100.0),
+                       self.spatial_lbl.config(text=f"{int(self.spatial_var.get())}%")))
+        self.threeD_onv, self.threeD_var, self.threeD_lbl = mk(
+            "3D", ACC, 0, 100,
+            lambda: setattr(self.engine, "threeD_on", self.threeD_onv.get()),
+            lambda v: (setattr(self.engine, "threeD", self.threeD_var.get() / 100.0),
+                       self.threeD_lbl.config(text=f"{int(self.threeD_var.get())}%")))
+        self.surround_onv, self.surround_var, self.surround_lbl = mk(
+            "7.1 SURROUND", "#f78c6b", 0, 100,
+            lambda: setattr(self.engine, "surround_on", self.surround_onv.get()),
+            lambda v: (setattr(self.engine, "surround", self.surround_var.get() / 100.0),
+                       self.surround_lbl.config(text=f"{int(self.surround_var.get())}%")))
 
         # bands: freq label + spectrum meter + vertical slider + fixed dB label
         band = ttk.Frame(f, style="Panel.TFrame")
@@ -618,15 +705,6 @@ class App:
         self.engine.build_eq()
         n = int(round(v))
         self.eq_lbls[i].config(text=(f"{n:+d}" if n else "0"))
-
-    def _on_bass(self):
-        self.engine.bass = float(self.bass_var.get())
-        self.engine.build_eq()
-        self.bass_lbl.config(text=f"{int(round(self.bass_var.get()))} dB")
-
-    def _on_spatial(self):
-        self.engine.spatial = 1.0 + float(self.spatial_var.get()) / 100.0
-        self.spatial_lbl.config(text=f"{int(round(self.spatial_var.get()))}%")
 
     # ── EQ presets ──
     def _eq_preset_path(self):
@@ -668,7 +746,14 @@ class App:
         if not name:
             return
         d = self._load_eq_presets()
-        d[name] = {"gains": list(self.engine.eq_gains), "bass": self.engine.bass, "spatial": self.engine.spatial}
+        e = self.engine
+        d[name] = {
+            "gains": list(e.eq_gains),
+            "bass_on": e.bass_on, "bass": e.bass,
+            "spatial_on": e.spatial_on, "spatial": e.spatial,
+            "threeD_on": e.threeD_on, "threeD": e.threeD,
+            "surround_on": e.surround_on, "surround": e.surround,
+        }
         self._save_eq_presets(d)
 
     def _eq_delete_preset(self, name):
@@ -688,16 +773,19 @@ class App:
             self.engine.eq_gains[i] = float(g)
             n = int(round(g))
             self.eq_lbls[i].config(text=(f"{n:+d}" if n else "0"))
-        bass = float(p.get("bass", 0.0))
-        self.bass_var.set(bass)
-        self.engine.bass = bass
-        self.bass_lbl.config(text=f"{int(round(bass))} dB")
-        sp = float(p.get("spatial", 1.0))
-        self.engine.spatial = sp
-        self.spatial_var.set((sp - 1.0) * 100)
-        self.spatial_lbl.config(text=f"{int(round((sp - 1.0) * 100))}%")
-        if not self.engine.eq_on:
-            self._toggle_eq()
+        e = self.engine
+        bs = float(p.get("bass", 0.0)); e.bass = bs
+        self.bass_var.set(bs); self.bass_lbl.config(text=f"{int(round(bs))} dB")
+        e.bass_on = bool(p.get("bass_on", False)); self.bass_onv.set(e.bass_on)
+        sp = float(p.get("spatial", 1.0)); e.spatial = sp
+        self.spatial_var.set((sp - 1.0) * 100); self.spatial_lbl.config(text=f"{int(round((sp - 1.0) * 100))}%")
+        e.spatial_on = bool(p.get("spatial_on", False)); self.spatial_onv.set(e.spatial_on)
+        td = float(p.get("threeD", 0.0)); e.threeD = td
+        self.threeD_var.set(td * 100); self.threeD_lbl.config(text=f"{int(round(td * 100))}%")
+        e.threeD_on = bool(p.get("threeD_on", False)); self.threeD_onv.set(e.threeD_on)
+        sr = float(p.get("surround", 0.0)); e.surround = sr
+        self.surround_var.set(sr * 100); self.surround_lbl.config(text=f"{int(round(sr * 100))}%")
+        e.surround_on = bool(p.get("surround_on", False)); self.surround_onv.set(e.surround_on)
         self.engine.build_eq()
 
     def _toggle_eq(self):
@@ -714,8 +802,22 @@ class App:
             self.eq_lbls[i].config(text="0")
         self.engine.build_eq()
 
+    def _set_run_btn(self, on):
+        if on:
+            self.start_btn.config(text="● ON", bg=ACC, fg="#06210f")
+        else:
+            self.start_btn.config(text="○ OFF", bg=PANEL, fg=SUB)
+
     def refresh_devices(self):
-        refresh_portaudio()
+        # Stop streams first — terminating PortAudio with open streams hangs the app
+        if self.engine.running:
+            self.engine.stop()
+            self._set_run_btn(False)
+            self.status.config(text="остановлено")
+        try:
+            refresh_portaudio()
+        except Exception:
+            pass
         self.out_devs = devices(True)
         self.in_devs = devices(False)
         self.left_cb["values"] = self._out_labels()
@@ -741,7 +843,7 @@ class App:
         self._test_token += 1  # cancel any pending test auto-stop
         if self.engine.running:
             self.engine.stop()
-            self.start_btn.config(text="▶ СТАРТ")
+            self._set_run_btn(False)
             self.status.config(text="остановлено")
             return
         left = self._combo_idx(self.left_cb, self.out_devs)
@@ -758,7 +860,7 @@ class App:
         except Exception as e:
             messagebox.showerror("Splitter", f"Не удалось запустить:\n{e}\n\nПопробуй другой источник/колонку или ⟳ Устройства.")
             return
-        self.start_btn.config(text="■ СТОП")
+        self._set_run_btn(True)
         self.status.config(text="играет")
 
     def test_side(self, side):
@@ -774,7 +876,7 @@ class App:
         except Exception as e:
             messagebox.showerror("Splitter", f"Ошибка теста:\n{e}")
             return
-        self.start_btn.config(text="■ СТОП")
+        self._set_run_btn(True)
         txt = {"L": "ТЕСТ → только ЛЕВАЯ (440 Гц)",
                "R": "ТЕСТ → только ПРАВАЯ (660 Гц)",
                "both": "ТЕСТ → L=440 / R=660"}[side]
@@ -787,7 +889,7 @@ class App:
     def _auto_stop_test(self, tok):
         if tok == self._test_token and self.engine.running and self.engine.test:
             self.engine.stop()
-            self.start_btn.config(text="▶ СТАРТ")
+            self._set_run_btn(False)
             self.status.config(text="остановлено")
 
     @staticmethod
