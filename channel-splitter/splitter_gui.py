@@ -14,10 +14,12 @@ two speakers. Each output is its own WASAPI stream with per-source ring
 buffers so independent (Bluetooth) clocks don't click.
 """
 
+import json
 import math
+import os
 import queue
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 
 import numpy as np
 import sounddevice as sd
@@ -31,10 +33,15 @@ MIN_DB = -48.0
 MAX_DB = 3.0
 SEGS = 30
 
-# 10-band graphic EQ
-EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+# Graphic EQ (12 bands incl. 20 Hz and 20 kHz)
+EQ_FREQS = [20, 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
 EQ_Q = 1.4
 EQ_RANGE = 12.0  # +/- dB
+EQ_EDGES = []
+for _i, _f in enumerate(EQ_FREQS):
+    _lo = (EQ_FREQS[_i - 1] * _f) ** 0.5 if _i > 0 else _f / 1.3
+    _hi = (EQ_FREQS[_i + 1] * _f) ** 0.5 if _i < len(EQ_FREQS) - 1 else min(_f * 1.3, SR / 2 - 1)
+    EQ_EDGES.append((_lo, _hi))
 
 
 def hostapi_name(i):
@@ -108,8 +115,19 @@ def _peaking_sos(f0, q, gain_db, fs):
     return [b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]
 
 
-def build_eq_sos(gains_db, fs):
-    return np.array([_peaking_sos(f, EQ_Q, g, fs) for f, g in zip(EQ_FREQS, gains_db)], dtype=np.float64)
+def _lowshelf_sos(f0, gain_db, fs, S=0.7):
+    A = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * np.pi * f0 / fs
+    cw, sw = np.cos(w0), np.sin(w0)
+    alpha = sw / 2.0 * np.sqrt((A + 1 / A) * (1 / S - 1) + 2)
+    tsa = 2.0 * np.sqrt(A) * alpha
+    b0 = A * ((A + 1) - (A - 1) * cw + tsa)
+    b1 = 2 * A * ((A - 1) - (A + 1) * cw)
+    b2 = A * ((A + 1) - (A - 1) * cw - tsa)
+    a0 = (A + 1) + (A - 1) * cw + tsa
+    a1 = -2 * ((A - 1) + (A + 1) * cw)
+    a2 = (A + 1) + (A - 1) * cw - tsa
+    return [b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]
 
 
 class Source:
@@ -145,10 +163,14 @@ class Engine:
         self.test_left = True
         self.test_right = True
         self.master = 1.0
-        # 10-band EQ
+        # EQ + effects
         self.eq_on = False
         self.eq_gains = [0.0] * len(EQ_FREQS)
-        self.eq_sos = build_eq_sos(self.eq_gains, SR)
+        self.bass = 0.0       # low-shelf boost dB (Bass Boost)
+        self.spatial = 1.0    # stereo width factor (1.0 = off)
+        self.spectrum = np.zeros(len(EQ_FREQS), dtype=np.float64)
+        self.eq_sos = None
+        self.build_eq()
         # per-output channel balance: -1 = play LEFT input channel, +1 = play RIGHT, 0 = mono mix
         self.balL = -1.0   # left speaker  -> left channel by default
         self.balR = 1.0    # right speaker -> right channel by default
@@ -160,7 +182,23 @@ class Engine:
         self.tone = [440.0, 660.0]
 
     def build_eq(self):
-        self.eq_sos = build_eq_sos(self.eq_gains, SR)
+        rows = []
+        if self.eq_on:
+            rows += [_peaking_sos(f, EQ_Q, g, SR) for f, g in zip(EQ_FREQS, self.eq_gains)]
+        if self.bass > 0:
+            rows.append(_lowshelf_sos(110.0, self.bass, SR))
+        self.eq_sos = np.array(rows, dtype=np.float64) if rows else None
+
+    def _update_spectrum(self, x):
+        n = x.shape[0]
+        if n < 16:
+            return
+        mag = np.abs(np.fft.rfft(x * np.hanning(n)))
+        freqs = np.fft.rfftfreq(n, 1.0 / SR)
+        sp = self.spectrum
+        for i, (lo, hi) in enumerate(EQ_EDGES):
+            m = (freqs >= lo) & (freqs < hi)
+            sp[i] = float(mag[m].mean()) if m.any() else 0.0
 
     def _pull(self, src, left, frames):
         q = src.qA if left else src.qB
@@ -198,18 +236,27 @@ class Engine:
                     block = self._pull(src, left, frames)  # (frames, 2)
                     if src.mute:
                         continue
+                    lg, rg = lr_gains(src.bal)
                     v = src.vol
-                    sumL = sumL + block[:, 0] * v
-                    sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * v
+                    sumL = sumL + block[:, 0] * (v * lg)
+                    sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * (v * rg)
+                w = self.spatial
+                if w != 1.0:
+                    mid = (sumL + sumR) * 0.5
+                    side = (sumL - sumR) * 0.5 * w
+                    sumL = mid + side
+                    sumR = mid - side
                 b = self.balL if left else self.balR   # -1 = L channel, +1 = R channel, 0 = mono
                 mix = sumL * (0.5 - b * 0.5) + sumR * (0.5 + b * 0.5)
             mix = mix * (self.busL if left else self.busR) * self.master
             sos = self.eq_sos
-            if self.eq_on and sos is not None:
+            if sos is not None and sos.shape[0] > 0:
                 if state["zi"] is None or state["zi"].shape[0] != sos.shape[0]:
                     state["zi"] = np.zeros((sos.shape[0], 2))
                 mix, state["zi"] = sosfilt(sos, mix, zi=state["zi"])
             mix = mix.astype(np.float32)
+            if left:
+                self._update_spectrum(mix)
             peak = float(np.max(np.abs(mix))) if mix.size else 0.0
             if left:
                 self.peakL = peak
@@ -303,6 +350,7 @@ class App:
         self.in_devs = devices(False)
         self._meter_disp = [0.0, 0.0]
         self._meter_hold = [0.0, 0.0]
+        self._spec_disp = np.zeros(len(EQ_FREQS), dtype=np.float64)
         self._test_token = 0
 
         root.title("CHANNEL SPLITTER")
@@ -311,6 +359,8 @@ class App:
         root.minsize(720, 600)
         self._style()
         self._build()
+        root.update_idletasks()
+        root.geometry(f"760x{root.winfo_reqheight() + 4}")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._tick()
 
@@ -386,7 +436,7 @@ class App:
         self.src_container.pack(fill="x", padx=10, pady=4)
         hdr = ttk.Frame(self.src_container, style="Panel.TFrame")
         hdr.pack(fill="x", padx=8, pady=(6, 0))
-        for txt, w in (("Устройство", 34), ("Громкость", 16), ("Фаза / Mute", 16)):
+        for txt, w in (("Устройство", 26), ("Громк.", 12), ("Баланс ←Л П→", 18), ("Фаза/Mute", 12)):
             ttk.Label(hdr, text=txt, style="Sub.TLabel", width=w, anchor="w").pack(side="left", padx=2)
 
         # ── Equalizer (bottom) ──
@@ -462,7 +512,7 @@ class App:
         row = ttk.Frame(self.src_container, style="Panel.TFrame")
         row.pack(fill="x", padx=8, pady=3)
 
-        cb = ttk.Combobox(row, values=self._in_labels(), state="readonly", width=34, font=FONT)
+        cb = ttk.Combobox(row, values=self._in_labels(), state="readonly", width=24, font=FONT)
         cb.pack(side="left", padx=2)
         if default_sub:
             self._select_default(cb, self.in_devs, default_sub)
@@ -474,6 +524,12 @@ class App:
         ttk.Scale(row, from_=0, to=150, variable=vol, orient="horizontal", length=90,
                   command=lambda *_a, s=src, var=vol, lbl=vlbl: (setattr(s, "vol", var.get() / 100), lbl.config(text=f"{int(var.get())}%"))).pack(side="left", padx=2)
         vlbl.pack(side="left", padx=(0, 6))
+
+        bal = tk.DoubleVar(value=0)
+        blbl = ttk.Label(row, text="C", background=PANEL, foreground=FG, width=4, anchor="center")
+        ttk.Scale(row, from_=-100, to=100, variable=bal, orient="horizontal", length=110,
+                  command=lambda *_a, s=src, var=bal, lbl=blbl: (setattr(s, "bal", var.get() / 100), lbl.config(text=bal_text(var.get())))).pack(side="left", padx=2)
+        blbl.pack(side="left", padx=(0, 6))
 
         inv = tk.BooleanVar(value=False)
         ttk.Checkbutton(row, text="Ø фаза", variable=inv,
@@ -496,34 +552,142 @@ class App:
     def _build_eq(self):
         f = ttk.Frame(self.root, style="Panel.TFrame")
         f.pack(fill="x", padx=10, pady=4)
+
         hdr = ttk.Frame(f, style="Panel.TFrame")
         hdr.pack(fill="x", pady=(4, 0))
-        ttk.Label(hdr, text="ЭКВАЛАЙЗЕР · 10 ПОЛОС", style="Head.TLabel").pack(side="left", padx=(6, 10))
+        ttk.Label(hdr, text="ЭКВАЛАЙЗЕР · 12 ПОЛОС", style="Head.TLabel").pack(side="left", padx=(6, 10))
         self.eq_btn = tk.Button(hdr, text="EQ ВЫКЛ", command=self._toggle_eq,
                                 bg=PANEL, fg=SUB, activebackground=BD, activeforeground=FG,
                                 relief="flat", bd=1, font=FONT_B, padx=16, pady=2, cursor="hand2")
         self.eq_btn.pack(side="left")
         ttk.Button(hdr, text="Сброс", command=self._eq_reset).pack(side="left", padx=8)
+        ttk.Label(hdr, text="Пресет:", background=PANEL, foreground=SUB).pack(side="left", padx=(14, 4))
+        self.eq_preset_cb = ttk.Combobox(hdr, state="readonly", width=16, font=FONT, values=[])
+        self.eq_preset_cb.pack(side="left")
+        self.eq_preset_cb.bind("<<ComboboxSelected>>", lambda e: self._eq_apply_preset(self.eq_preset_cb.get()))
+        ttk.Button(hdr, text="Сохранить", command=self._eq_save_preset).pack(side="left", padx=6)
+        ttk.Button(hdr, text="Удалить", command=self._eq_delete_preset).pack(side="left")
+
+        # effects: Bass Boost + Spatial
+        fx = ttk.Frame(f, style="Panel.TFrame")
+        fx.pack(fill="x", pady=(6, 2))
+        ttk.Label(fx, text="BASS BOOST", background=PANEL, foreground=ACC).pack(side="left", padx=(6, 4))
+        self.bass_var = tk.DoubleVar(value=0)
+        ttk.Scale(fx, from_=0, to=12, variable=self.bass_var, orient="horizontal", length=150,
+                  command=lambda v: self._on_bass()).pack(side="left")
+        self.bass_lbl = ttk.Label(fx, text="0 dB", background=PANEL, foreground=SUB, width=6)
+        self.bass_lbl.pack(side="left", padx=(2, 18))
+        ttk.Label(fx, text="SPATIAL", background=PANEL, foreground=ACC2).pack(side="left", padx=(6, 4))
+        self.spatial_var = tk.DoubleVar(value=0)
+        ttk.Scale(fx, from_=0, to=100, variable=self.spatial_var, orient="horizontal", length=150,
+                  command=lambda v: self._on_spatial()).pack(side="left")
+        self.spatial_lbl = ttk.Label(fx, text="0%", background=PANEL, foreground=SUB, width=6)
+        self.spatial_lbl.pack(side="left", padx=2)
+
+        # bands: freq label + spectrum meter + vertical slider + fixed dB label
         band = ttk.Frame(f, style="Panel.TFrame")
-        band.pack(fill="x", pady=(2, 6))
+        band.pack(fill="x", pady=(4, 6))
         self.eq_vars = []
         self.eq_lbls = []
+        self.eq_meters = []
         for i, fr in enumerate(EQ_FREQS):
             col = ttk.Frame(band, style="Panel.TFrame")
             col.pack(side="left", expand=True, fill="x")
             ttk.Label(col, text=eq_flabel(fr), style="Sub.TLabel").pack()
+            mid = ttk.Frame(col, style="Panel.TFrame")
+            mid.pack()
+            mtr = tk.Canvas(mid, width=7, height=130, bg=BD, highlightthickness=0)
+            mtr.pack(side="left", padx=(0, 2))
             var = tk.DoubleVar(value=0)
-            ttk.Scale(col, from_=EQ_RANGE, to=-EQ_RANGE, orient="vertical", length=70, variable=var,
-                      command=lambda v, i=i, var=var: self._on_eq(i, var)).pack()
-            lb = ttk.Label(col, text="0", background=PANEL, foreground=FG)
+            ttk.Scale(mid, from_=EQ_RANGE, to=-EQ_RANGE, orient="vertical", length=130, variable=var,
+                      command=lambda v, i=i, var=var: self._on_eq(i, var)).pack(side="left")
+            lb = ttk.Label(col, text="0", background=PANEL, foreground=FG, width=4, anchor="center")
             lb.pack()
             self.eq_vars.append(var)
             self.eq_lbls.append(lb)
+            self.eq_meters.append(mtr)
+        self._refresh_eq_presets()
 
     def _on_eq(self, i, var):
-        self.engine.eq_gains[i] = float(var.get())
+        v = var.get()
+        self.engine.eq_gains[i] = float(v)
         self.engine.build_eq()
-        self.eq_lbls[i].config(text=f"{int(round(var.get())):+d}")
+        n = int(round(v))
+        self.eq_lbls[i].config(text=(f"{n:+d}" if n else "0"))
+
+    def _on_bass(self):
+        self.engine.bass = float(self.bass_var.get())
+        self.engine.build_eq()
+        self.bass_lbl.config(text=f"{int(round(self.bass_var.get()))} dB")
+
+    def _on_spatial(self):
+        self.engine.spatial = 1.0 + float(self.spatial_var.get()) / 100.0
+        self.spatial_lbl.config(text=f"{int(round(self.spatial_var.get()))}%")
+
+    # ── EQ presets ──
+    def _eq_preset_path(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "eq_presets.json")
+
+    def _load_eq_presets(self):
+        try:
+            with open(self._eq_preset_path(), "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return {}
+
+    def _save_eq_presets(self, d):
+        try:
+            with open(self._eq_preset_path(), "w", encoding="utf-8") as fh:
+                json.dump(d, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _refresh_eq_presets(self):
+        self.eq_preset_cb["values"] = list(self._load_eq_presets().keys())
+
+    def _eq_save_preset(self):
+        name = simpledialog.askstring("Пресет EQ", "Название пресета:", parent=self.root)
+        if not name:
+            return
+        d = self._load_eq_presets()
+        d[name] = {"gains": list(self.engine.eq_gains), "bass": self.engine.bass, "spatial": self.engine.spatial}
+        self._save_eq_presets(d)
+        self._refresh_eq_presets()
+        self.eq_preset_cb.set(name)
+
+    def _eq_delete_preset(self):
+        name = self.eq_preset_cb.get()
+        if not name:
+            return
+        d = self._load_eq_presets()
+        if name in d:
+            del d[name]
+            self._save_eq_presets(d)
+            self._refresh_eq_presets()
+            self.eq_preset_cb.set("")
+
+    def _eq_apply_preset(self, name):
+        p = self._load_eq_presets().get(name)
+        if not p:
+            return
+        gains = p.get("gains", [0.0] * len(EQ_FREQS))
+        for i, var in enumerate(self.eq_vars):
+            g = gains[i] if i < len(gains) else 0.0
+            var.set(g)
+            self.engine.eq_gains[i] = float(g)
+            n = int(round(g))
+            self.eq_lbls[i].config(text=(f"{n:+d}" if n else "0"))
+        bass = float(p.get("bass", 0.0))
+        self.bass_var.set(bass)
+        self.engine.bass = bass
+        self.bass_lbl.config(text=f"{int(round(bass))} dB")
+        sp = float(p.get("spatial", 1.0))
+        self.engine.spatial = sp
+        self.spatial_var.set((sp - 1.0) * 100)
+        self.spatial_lbl.config(text=f"{int(round((sp - 1.0) * 100))}%")
+        if not self.engine.eq_on:
+            self._toggle_eq()
+        self.engine.build_eq()
 
     def _toggle_eq(self):
         self.engine.eq_on = not self.engine.eq_on
@@ -675,6 +839,18 @@ class App:
             self._meter_disp[i] = max(pk, self._meter_disp[i] * 0.80)
             self._meter_hold[i] = pk if pk >= self._meter_hold[i] else max(pk, self._meter_hold[i] - 0.006)
         self._draw_meters()
+        # EQ per-band spectrum bars
+        sp = self.engine.spectrum
+        self._spec_disp = np.maximum(sp, self._spec_disp * 0.7)
+        mx = float(self._spec_disp.max()) if self._spec_disp.size else 0.0
+        norm = mx if mx > 1e-9 else 1.0
+        for i, cv in enumerate(getattr(self, "eq_meters", [])):
+            lvl = min(1.0, self._spec_disp[i] / norm)
+            cv.delete("all")
+            h = cv.winfo_height() or 130
+            w = cv.winfo_width() or 7
+            bh = int(h * lvl)
+            cv.create_rectangle(0, h - bh, w, h, fill=ACC, width=0)
         self.root.after(60, self._tick)
 
     def on_close(self):
