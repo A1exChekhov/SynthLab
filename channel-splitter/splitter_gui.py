@@ -14,6 +14,7 @@ two speakers. Each output is its own WASAPI stream with per-source ring
 buffers so independent (Bluetooth) clocks don't click.
 """
 
+import math
 import queue
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -25,6 +26,9 @@ HOSTAPI_PREF = ["Windows WASAPI", "MME", "Windows DirectSound", "Windows WDM-KS"
 SR = 48000
 BLOCK = 480
 MAXBUF = 32
+MIN_DB = -48.0
+MAX_DB = 3.0
+SEGS = 30
 
 
 def hostapi_name(i):
@@ -221,11 +225,12 @@ class App:
         self.out_devs = devices(True)
         self.in_devs = devices(False)
         self._meter_disp = [0.0, 0.0]
+        self._meter_hold = [0.0, 0.0]
 
         root.title("CHANNEL SPLITTER")
         root.configure(bg=BG)
-        root.geometry("680x560")
-        root.minsize(640, 480)
+        root.geometry("700x640")
+        root.minsize(660, 560)
         self._style()
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -291,15 +296,12 @@ class App:
         self.busR_lbl = ttk.Label(out, text="100%", background=PANEL, foreground=SUB, width=5)
         self.busR_lbl.grid(row=2, column=3, padx=4)
 
-        # meters
+        # Voicemeeter-style VU meters for the two output buses
         mfr = ttk.Frame(out, style="Panel.TFrame")
         mfr.grid(row=3, column=0, columnspan=4, sticky="we", padx=8, pady=(2, 8))
-        ttk.Label(mfr, text="L", background=PANEL, foreground=SUB).pack(side="left")
-        self.meterL = tk.Canvas(mfr, height=8, bg=BD, highlightthickness=0)
-        self.meterL.pack(side="left", fill="x", expand=True, padx=(4, 12))
-        ttk.Label(mfr, text="R", background=PANEL, foreground=SUB).pack(side="left")
-        self.meterR = tk.Canvas(mfr, height=8, bg=BD, highlightthickness=0)
-        self.meterR.pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Label(mfr, text="УРОВЕНЬ ВЫХОДОВ  (A = левая · B = правая)", style="Sub.TLabel").pack(anchor="w")
+        self.meters = tk.Canvas(mfr, height=190, bg=PANEL, highlightthickness=0)
+        self.meters.pack(fill="x", expand=True)
         out.columnconfigure(1, weight=1)
         out.columnconfigure(2, weight=1)
 
@@ -448,21 +450,66 @@ class App:
         self.start_btn.config(text="■ СТОП")
         self.status.config(text="тест: L=440Гц R=660Гц")
 
-    def _draw_meter(self, canvas, level):
-        canvas.delete("all")
-        w = canvas.winfo_width() or 200
-        h = canvas.winfo_height() or 8
-        fill = ACC if level < 0.7 else ("#ffd166" if level < 0.92 else RED)
-        canvas.create_rectangle(0, 0, int(w * min(1.0, level)), h, fill=fill, width=0)
+    @staticmethod
+    def _to_db(lvl):
+        if lvl <= 1e-6:
+            return MIN_DB
+        return max(MIN_DB, min(MAX_DB, 20.0 * math.log10(lvl)))
+
+    @staticmethod
+    def _frac(db):
+        return (db - MIN_DB) / (MAX_DB - MIN_DB)
+
+    def _draw_meters(self):
+        c = self.meters
+        c.delete("all")
+        W = c.winfo_width() or 400
+        H = 190
+        top, bot = 18, H - 18
+        barH = bot - top
+        barW = 30
+        cx = W / 2
+        gutter = 46
+        xL = cx - gutter / 2 - barW
+        xR = cx + gutter / 2
+
+        # dB scale in the centre gutter
+        for db in (0, -6, -12, -18, -24, -36, -48):
+            y = bot - self._frac(db) * barH
+            c.create_text(cx, y, text=str(db), fill=SUB, font=("Consolas", 7))
+            c.create_line(xL + barW, y, xL + barW + 4, y, fill=BD)
+            c.create_line(xR - 4, y, xR, y, fill=BD)
+
+        bars = ((xL, self._meter_disp[0], self._meter_hold[0], "A", "ЛЕВАЯ"),
+                (xR, self._meter_disp[1], self._meter_hold[1], "B", "ПРАВАЯ"))
+        for x, lvl, hold, name, cap in bars:
+            db = self._to_db(lvl)
+            litf = self._frac(db)
+            for k in range(SEGS):
+                segf = (k + 0.5) / SEGS
+                seg_db = MIN_DB + segf * (MAX_DB - MIN_DB)
+                y0 = bot - (k + 1) / SEGS * barH
+                y1 = bot - k / SEGS * barH
+                if segf <= litf:
+                    col = RED if seg_db >= -3 else ("#ffd166" if seg_db >= -12 else ACC)
+                else:
+                    col = "#10141a"
+                c.create_rectangle(x, y0 + 1, x + barW, y1 - 1, fill=col, width=0)
+            # peak-hold marker
+            yh = bot - self._frac(self._to_db(hold)) * barH
+            c.create_line(x, yh, x + barW, yh, fill="#ffffff", width=1)
+            # captions + numeric dB
+            c.create_text(x + barW / 2, top - 8, text=("-inf" if db <= MIN_DB else f"{db:.1f}"), fill=FG, font=("Consolas", 8, "bold"))
+            c.create_text(x + barW / 2, bot + 7, text=name, fill=ACC, font=("Consolas", 9, "bold"))
+            c.create_text(x + barW / 2, bot + 16, text=cap, fill=SUB, font=("Consolas", 7))
 
     def _tick(self):
         self.busL_lbl.config(text=f"{int(self.busL_var.get())}%")
         self.busR_lbl.config(text=f"{int(self.busR_var.get())}%")
-        # smooth meter decay
-        self._meter_disp[0] = max(self.engine.peakL, self._meter_disp[0] * 0.82)
-        self._meter_disp[1] = max(self.engine.peakR, self._meter_disp[1] * 0.82)
-        self._draw_meter(self.meterL, self._meter_disp[0])
-        self._draw_meter(self.meterR, self._meter_disp[1])
+        for i, pk in enumerate((self.engine.peakL, self.engine.peakR)):
+            self._meter_disp[i] = max(pk, self._meter_disp[i] * 0.80)
+            self._meter_hold[i] = pk if pk >= self._meter_hold[i] else max(pk, self._meter_hold[i] - 0.006)
+        self._draw_meters()
         self.root.after(60, self._tick)
 
     def on_close(self):
