@@ -180,6 +180,7 @@ class Engine:
 
     def _out_cb(self, left):
         ch_idx = 0 if left else 1
+        state = {"zi": None}
 
         def cb(outdata, frames, _t, _s):
             if self.test:
@@ -306,8 +307,8 @@ class App:
 
         root.title("CHANNEL SPLITTER")
         root.configure(bg=BG)
-        root.geometry("760x860")
-        root.minsize(720, 760)
+        root.geometry("760x650")
+        root.minsize(720, 600)
         self._style()
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -367,7 +368,7 @@ class App:
 
         mfr = ttk.Frame(out, style="Panel.TFrame")
         mfr.grid(row=1, column=1, padx=6, pady=4)
-        self.meters = tk.Canvas(mfr, width=150, height=210, bg=PANEL, highlightthickness=0)
+        self.meters = tk.Canvas(mfr, width=150, height=168, bg=PANEL, highlightthickness=0)
         self.meters.pack()
 
         self.right_cb, self.busR_lbl = self._build_out_strip(out, 1, 2, "🔊  ПРАВАЯ  (B)", "JBL", self.busR_var, "busR", "R", "balR", 100)
@@ -382,7 +383,7 @@ class App:
         ttk.Button(srchead, text="+ Источник", command=self.add_source_row).pack(side="right")
 
         self.src_container = ttk.Frame(self.root, style="Panel.TFrame")
-        self.src_container.pack(fill="both", expand=True, padx=10, pady=4)
+        self.src_container.pack(fill="x", padx=10, pady=4)
         hdr = ttk.Frame(self.src_container, style="Panel.TFrame")
         hdr.pack(fill="x", padx=8, pady=(6, 0))
         for txt, w in (("Устройство", 34), ("Громкость", 16), ("Фаза / Mute", 16)):
@@ -424,9 +425,11 @@ class App:
         lbl = ttk.Label(vr, text="100%", background=PANEL, foreground=SUB, width=5)
         lbl.pack(side="left")
 
-        # per-output channel balance: ←Л … микс … П→
+        ttk.Button(f, text="🔊 Тест этой колонки", command=lambda s=side: self.test_side(s)).pack(fill="x", pady=(6, 4))
+
+        # per-output channel balance (under the test button): ←Л … микс … П→
         br = ttk.Frame(f, style="Panel.TFrame")
-        br.pack(fill="x", pady=(4, 0))
+        br.pack(fill="x")
         ttk.Label(br, text="КАНАЛ", background=PANEL, foreground=SUB).pack(side="left")
         bal_var = tk.DoubleVar(value=default_bal)
         blbl = ttk.Label(br, text=chan_text(default_bal), background=PANEL, foreground=ACC, width=6)
@@ -435,8 +438,6 @@ class App:
         blbl.pack(side="left")
         ttk.Label(f, text="←Л   микс   П→", background=PANEL, foreground=SUB).pack(anchor="center")
         setattr(self.engine, bal_attr, default_bal / 100)
-
-        ttk.Button(f, text="🔊 Тест этой колонки", command=lambda s=side: self.test_side(s)).pack(fill="x", pady=(6, 2))
         return cb, lbl
 
     def _select_default(self, cb, devlist, sub):
@@ -498,9 +499,10 @@ class App:
         hdr = ttk.Frame(f, style="Panel.TFrame")
         hdr.pack(fill="x", pady=(4, 0))
         ttk.Label(hdr, text="ЭКВАЛАЙЗЕР · 10 ПОЛОС", style="Head.TLabel").pack(side="left", padx=(6, 10))
-        self.eq_on_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(hdr, text="Вкл", variable=self.eq_on_var,
-                        command=lambda: setattr(self.engine, "eq_on", self.eq_on_var.get())).pack(side="left")
+        self.eq_btn = tk.Button(hdr, text="EQ ВЫКЛ", command=self._toggle_eq,
+                                bg=PANEL, fg=SUB, activebackground=BD, activeforeground=FG,
+                                relief="flat", bd=1, font=FONT_B, padx=16, pady=2, cursor="hand2")
+        self.eq_btn.pack(side="left")
         ttk.Button(hdr, text="Сброс", command=self._eq_reset).pack(side="left", padx=8)
         band = ttk.Frame(f, style="Panel.TFrame")
         band.pack(fill="x", pady=(2, 6))
@@ -511,7 +513,7 @@ class App:
             col.pack(side="left", expand=True, fill="x")
             ttk.Label(col, text=eq_flabel(fr), style="Sub.TLabel").pack()
             var = tk.DoubleVar(value=0)
-            ttk.Scale(col, from_=EQ_RANGE, to=-EQ_RANGE, orient="vertical", length=96, variable=var,
+            ttk.Scale(col, from_=EQ_RANGE, to=-EQ_RANGE, orient="vertical", length=70, variable=var,
                       command=lambda v, i=i, var=var: self._on_eq(i, var)).pack()
             lb = ttk.Label(col, text="0", background=PANEL, foreground=FG)
             lb.pack()
@@ -522,6 +524,13 @@ class App:
         self.engine.eq_gains[i] = float(var.get())
         self.engine.build_eq()
         self.eq_lbls[i].config(text=f"{int(round(var.get())):+d}")
+
+    def _toggle_eq(self):
+        self.engine.eq_on = not self.engine.eq_on
+        if self.engine.eq_on:
+            self.eq_btn.config(text="EQ ВКЛ", bg=ACC, fg="#06210f")
+        else:
+            self.eq_btn.config(text="EQ ВЫКЛ", bg=PANEL, fg=SUB)
 
     def _eq_reset(self):
         for i, var in enumerate(self.eq_vars):
