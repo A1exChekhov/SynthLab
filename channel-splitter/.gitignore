@@ -4,3 +4,5 @@ __pycache__/
 build/
 dist/
 *.spec
+buildenv/
+eq_presets.json
