@@ -18,12 +18,30 @@ import json
 import math
 import os
 import queue
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
 import numpy as np
 import sounddevice as sd
 from scipy.signal import sosfilt, butter
+
+try:
+    import soundcard as _sc
+    HAVE_LOOPBACK = True
+except Exception:
+    _sc = None
+    HAVE_LOOPBACK = False
+
+
+def loopback_speakers():
+    """Render-device names available for WASAPI loopback capture (no VB-CABLE needed)."""
+    if not HAVE_LOOPBACK:
+        return []
+    try:
+        return [s.name for s in _sc.all_speakers()]
+    except Exception:
+        return []
 
 HOSTAPI_PREF = ["Windows WASAPI", "MME", "Windows DirectSound", "Windows WDM-KS"]
 SR = 48000
@@ -163,10 +181,14 @@ class Source:
         self.inv = False   # invert phase of the RIGHT channel
         self.in_peakL = 0.0
         self.in_peakR = 0.0
+        self.loopback = False   # capture system audio via WASAPI loopback (no VB-CABLE)
+        self.lb_name = ""       # render-device name to loopback
         # runtime: one stereo queue per output speaker id
         self.queues = {}   # out_id -> queue.Queue
         self.bufs = {}     # out_id -> ndarray (n, 2)
         self.stream = None
+        self._running = False
+        self._thread = None
 
 
 class OutputSpk:
@@ -340,6 +362,39 @@ class Engine:
 
         return cb
 
+    def _loopback_worker(self, src):
+        if _sc is None:
+            return
+        try:
+            spk = None
+            if src.lb_name:
+                spk = next((d for d in _sc.all_speakers() if src.lb_name.lower() in d.name.lower()), None)
+            if spk is None:
+                spk = _sc.default_speaker()
+            mic = _sc.get_microphone(spk.name, include_loopback=True)
+            with mic.recorder(samplerate=SR, channels=2, blocksize=BLOCK) as rec:
+                while src._running:
+                    data = rec.record(numframes=BLOCK)
+                    if data is None or len(data) == 0:
+                        continue
+                    if data.shape[1] >= 2:
+                        blk = np.ascontiguousarray(data[:, :2], dtype=np.float32)
+                    else:
+                        mono = data[:, 0].astype(np.float32)
+                        blk = np.column_stack([mono, mono])
+                    src.in_peakL = float(np.max(np.abs(blk[:, 0]))) if blk.size else 0.0
+                    src.in_peakR = float(np.max(np.abs(blk[:, 1]))) if blk.size else 0.0
+                    for q in src.queues.values():
+                        try:
+                            q.put_nowait(blk)
+                        except queue.Full:
+                            try:
+                                q.get_nowait(); q.put_nowait(blk)
+                            except queue.Empty:
+                                pass
+        except Exception:
+            pass
+
     def start(self, sources, outputs, test=False):
         self.stop()
         self.sources = sources
@@ -354,6 +409,12 @@ class Engine:
                 for src in sources:
                     src.queues = {o.id: queue.Queue(MAXBUF) for o in outputs}
                     src.bufs = {o.id: np.zeros((0, 2), dtype=np.float32) for o in outputs}
+
+                    if src.loopback:
+                        src._running = True
+                        src._thread = threading.Thread(target=self._loopback_worker, args=(src,), daemon=True)
+                        src._thread.start()
+                        continue
 
                     def make_in(s):
                         def in_cb(indata, frames, _t, _st):
@@ -395,12 +456,20 @@ class Engine:
         self.running = True
 
     def stop(self):
+        for src in self.sources:
+            src._running = False
         for s in self.streams:
             try:
                 s.stop(); s.close()
             except Exception:
                 pass
         for src in self.sources:
+            if src._thread is not None:
+                try:
+                    src._thread.join(timeout=0.6)
+                except Exception:
+                    pass
+                src._thread = None
             src.stream = None
         for o in self.outputs:
             o.stream = None
@@ -508,7 +577,9 @@ class App:
         srchead = ttk.Frame(self.root)
         srchead.pack(fill="x", padx=10, pady=(8, 0))
         ttk.Label(srchead, text="ИСТОЧНИКИ", style="Head.TLabel").pack(side="left")
-        ttk.Button(srchead, text="+ Источник", command=self.add_source_row).pack(side="right")
+        ttk.Button(srchead, text="+ Источник", command=lambda: self.add_source_row()).pack(side="right")
+        if HAVE_LOOPBACK:
+            ttk.Button(srchead, text="+ Системный звук", command=self.add_loopback_row).pack(side="right", padx=6)
 
         self.src_container = ttk.Frame(self.root, style="Panel.TFrame")
         self.src_container.pack(fill="x", padx=10, pady=4)
@@ -638,18 +709,30 @@ class App:
             return None
         return devlist[k][0]
 
-    def add_source_row(self, default_sub=None):
+    def add_loopback_row(self):
+        self.add_source_row(loopback=True)
+
+    def add_source_row(self, default_sub=None, loopback=False):
         src = Source(0, "")
+        src.loopback = loopback
         self.sources.append(src)
         row = ttk.Frame(self.src_container, style="Panel.TFrame")
         row.pack(fill="x", padx=8, pady=3)
 
-        cb = ttk.Combobox(row, values=self._in_labels(), state="readonly", width=24, font=FONT)
-        cb.pack(side="left", padx=2)
-        if default_sub:
-            self._select_default(cb, self.in_devs, default_sub)
-        elif self.in_devs:
-            cb.current(0)
+        if loopback:
+            ttk.Label(row, text="🔊", background=PANEL, foreground=ACC).pack(side="left")
+            names = loopback_speakers()
+            cb = ttk.Combobox(row, values=names, state="readonly", width=22, font=FONT)
+            cb.pack(side="left", padx=2)
+            if names:
+                cb.current(0)
+        else:
+            cb = ttk.Combobox(row, values=self._in_labels(), state="readonly", width=24, font=FONT)
+            cb.pack(side="left", padx=2)
+            if default_sub:
+                self._select_default(cb, self.in_devs, default_sub)
+            elif self.in_devs:
+                cb.current(0)
 
         vol = tk.DoubleVar(value=100)
         vlbl = ttk.Label(row, text="100%", background=PANEL, foreground=FG, width=5)
@@ -673,7 +756,7 @@ class App:
 
         ttk.Button(row, text="✕", width=2, command=lambda: self.remove_source(src, row)).pack(side="left", padx=2)
 
-        self.src_rows.append({"src": src, "cb": cb, "row": row})
+        self.src_rows.append({"src": src, "cb": cb, "row": row, "loopback": loopback})
 
     def remove_source(self, src, row):
         if src in self.sources:
@@ -893,12 +976,17 @@ class App:
     def _resolve_sources(self):
         ok = []
         for r in self.src_rows:
-            idx = self._combo_idx(r["cb"], self.in_devs)
-            if idx is None:
-                continue
-            r["src"].idx = idx
-            r["src"].name = r["cb"].get()
-            ok.append(r["src"])
+            src = r["src"]
+            if r.get("loopback"):
+                src.lb_name = r["cb"].get()
+                ok.append(src)
+            else:
+                idx = self._combo_idx(r["cb"], self.in_devs)
+                if idx is None:
+                    continue
+                src.idx = idx
+                src.name = r["cb"].get()
+                ok.append(src)
         return ok
 
     def toggle(self):
