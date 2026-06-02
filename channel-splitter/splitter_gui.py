@@ -68,6 +68,11 @@ def lr_gains(bal):  # bal in [-1, 1]; -1 = only LEFT speaker, +1 = only RIGHT sp
     return (1.0 if bal <= 0 else 1.0 - bal), (1.0 if bal >= 0 else 1.0 + bal)
 
 
+def bal_text(x):  # x in -100..100
+    n = int(round(x))
+    return "C" if n == 0 else (f"L{-n}" if n < 0 else f"R{n}")
+
+
 class Source:
     _n = 0
 
@@ -232,6 +237,7 @@ class App:
         self.in_devs = devices(False)
         self._meter_disp = [0.0, 0.0]
         self._meter_hold = [0.0, 0.0]
+        self._test_token = 0
 
         root.title("CHANNEL SPLITTER")
         root.configure(bg=BG)
@@ -380,12 +386,16 @@ class App:
             cb.current(0)
 
         vol = tk.DoubleVar(value=100)
+        vlbl = ttk.Label(row, text="100%", background=PANEL, foreground=FG, width=5)
         ttk.Scale(row, from_=0, to=150, variable=vol, orient="horizontal", length=90,
-                  command=lambda v, s=src: setattr(s, "vol", float(v) / 100)).pack(side="left", padx=2)
+                  command=lambda *_a, s=src, var=vol, lbl=vlbl: (setattr(s, "vol", var.get() / 100), lbl.config(text=f"{int(var.get())}%"))).pack(side="left", padx=2)
+        vlbl.pack(side="left", padx=(0, 6))
 
         bal = tk.DoubleVar(value=0)
+        blbl = ttk.Label(row, text="C", background=PANEL, foreground=FG, width=5)
         ttk.Scale(row, from_=-100, to=100, variable=bal, orient="horizontal", length=130,
-                  command=lambda v, s=src: setattr(s, "bal", float(v) / 100)).pack(side="left", padx=2)
+                  command=lambda *_a, s=src, var=bal, lbl=blbl: (setattr(s, "bal", var.get() / 100), lbl.config(text=bal_text(var.get())))).pack(side="left", padx=2)
+        blbl.pack(side="left", padx=(0, 6))
 
         mute = tk.BooleanVar(value=False)
         ttk.Checkbutton(row, text="M", variable=mute,
@@ -425,6 +435,7 @@ class App:
         return ok
 
     def toggle(self):
+        self._test_token += 1  # cancel any pending test auto-stop
         if self.engine.running:
             self.engine.stop()
             self.start_btn.config(text="▶ СТАРТ")
@@ -465,6 +476,16 @@ class App:
                "R": "ТЕСТ → только ПРАВАЯ (660 Гц)",
                "both": "ТЕСТ → L=440 / R=660"}[side]
         self.status.config(text=txt)
+        # auto-stop the short test beep
+        self._test_token += 1
+        tok = self._test_token
+        self.root.after(1800, lambda: self._auto_stop_test(tok))
+
+    def _auto_stop_test(self, tok):
+        if tok == self._test_token and self.engine.running and self.engine.test:
+            self.engine.stop()
+            self.start_btn.config(text="▶ СТАРТ")
+            self.status.config(text="остановлено")
 
     @staticmethod
     def _to_db(lvl):
