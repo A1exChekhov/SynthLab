@@ -1045,7 +1045,8 @@ class App:
     def _device_poll(self):
         # Auto-detect hot-plugged devices (Bluetooth) without restarting the app.
         # PortAudio only sees new devices after re-init, so we re-init while stopped.
-        if not self.engine.running:
+        # NEVER re-init during calibration — it would kill the calibration streams.
+        if not self.engine.running and not getattr(self, "_calibrating", False):
             try:
                 refresh_portaudio()
             except Exception:
@@ -1085,11 +1086,10 @@ class App:
 
     def _calibrate_worker(self, mic_idx, outs):
         try:
-            ref = make_chirp(sr=SR)
             lat = {}
             for o in outs:
                 self._set_cal_status(f"замер: {o.name[:22]}…")
-                lat[o.id] = self._calibrate_one(mic_idx, o.idx, ref)
+                lat[o.id] = self._calibrate_one(mic_idx, o.idx)
             mx = max(lat.values()) if lat else 0.0
             delays = {oid: max(0.0, (mx - l) * 1000.0) for oid, l in lat.items()}
 
@@ -1105,9 +1105,22 @@ class App:
             self._set_cal_status(f"ошибка: {e}")
             self._calibrating = False
 
-    def _calibrate_one(self, mic_idx, spk_idx, ref):
-        nref = len(ref)
-        n_rec = nref + int(0.6 * SR)
+    def _calibrate_one(self, mic_idx, spk_idx):
+        # Use each device's NATIVE sample rate (mics/BT speakers vary) to avoid open errors.
+        try:
+            spk_sr = int(sd.query_devices(spk_idx).get("default_samplerate") or SR)
+        except Exception:
+            spk_sr = SR
+        try:
+            mic_sr = int(sd.query_devices(mic_idx).get("default_samplerate") or SR)
+        except Exception:
+            mic_sr = SR
+
+        play_ref = make_chirp(sr=spk_sr)
+        corr_ref = make_chirp(sr=mic_sr)
+        nplay, ncorr = len(play_ref), len(corr_ref)
+        rec_secs = ncorr / mic_sr + 0.6
+        n_rec = int(rec_secs * mic_sr)
         recbuf = np.zeros(n_rec, dtype=np.float32)
         ri = [0]
 
@@ -1117,28 +1130,28 @@ class App:
                 recbuf[ri[0]:ri[0] + k] = indata[:k, 0]
             ri[0] += k
 
-        stereo = np.column_stack([ref, ref])
+        stereo = np.column_stack([play_ref, play_ref])
         pi = [0]
 
         def out_cb(outdata, frames, _t, _s):
-            k = min(frames, nref - pi[0])
+            k = min(frames, nplay - pi[0])
             if k > 0:
                 outdata[:k] = stereo[pi[0]:pi[0] + k]
             if k < frames:
                 outdata[k:] = 0
             pi[0] += k
 
-        inp = sd.InputStream(device=mic_idx, channels=1, samplerate=SR, blocksize=1024, dtype="float32", callback=in_cb)
-        out = sd.OutputStream(device=spk_idx, channels=2, samplerate=SR, blocksize=1024, dtype="float32", callback=out_cb)
+        inp = sd.InputStream(device=mic_idx, channels=1, samplerate=mic_sr, blocksize=1024, dtype="float32", callback=in_cb)
+        out = sd.OutputStream(device=spk_idx, channels=2, samplerate=spk_sr, blocksize=1024, dtype="float32", callback=out_cb)
         inp.start(); out.start()
-        time.sleep(n_rec / SR + 0.15)
+        time.sleep(rec_secs + 0.2)
         try:
             out.stop(); inp.stop(); out.close(); inp.close()
         except Exception:
             pass
-        corr = fftconvolve(recbuf, ref[::-1], mode="full")
-        lag = int(np.argmax(np.abs(corr))) - (nref - 1)
-        return max(0.0, lag / SR)
+        corr = fftconvolve(recbuf, corr_ref[::-1], mode="full")
+        lag = int(np.argmax(np.abs(corr))) - (ncorr - 1)
+        return max(0.0, lag / mic_sr)
 
     def _resolve_sources(self):
         ok = []
