@@ -271,6 +271,7 @@ class Engine:
         self.build_eq()
         self.outputs = []        # list[OutputSpk]
         self._spec_src = None    # output whose signal feeds the EQ spectrum
+        self.failed_outputs = []
 
     def build_eq(self):
         rows = []
@@ -478,17 +479,41 @@ class Engine:
                     src.stream = sd.InputStream(device=src.idx, channels=2, samplerate=SR,
                                                 blocksize=BLOCK, dtype="float32", callback=make_in(src))
                     streams.append(src.stream)
-            tones = [440.0, 660.0, 550.0, 330.0, 770.0, 220.0, 880.0, 494.0]
-            for i, o in enumerate(outputs):
-                o.stream = sd.OutputStream(device=o.idx, channels=2, samplerate=SR, blocksize=BLOCK,
-                                           dtype="float32", callback=self._out_cb(o, tones[i % len(tones)]))
-                streams.append(o.stream)
+            # start input/capture streams first (these must succeed)
             for s in streams:
                 s.start()
+            # open each output tolerantly — one bad/unavailable speaker must not kill the rest
+            tones = [440.0, 660.0, 550.0, 330.0, 770.0, 220.0, 880.0, 494.0]
+            self.failed_outputs = []
+            started = []
+            for i, o in enumerate(outputs):
+                o.stream = None
+                try:
+                    o.stream = sd.OutputStream(device=o.idx, channels=2, samplerate=SR, blocksize=BLOCK,
+                                               dtype="float32", callback=self._out_cb(o, tones[i % len(tones)]))
+                    o.stream.start()
+                    streams.append(o.stream)
+                    started.append(o)
+                except Exception as ex:
+                    self.failed_outputs.append((o.name, str(ex)))
+                    try:
+                        if o.stream is not None:
+                            o.stream.close()
+                    except Exception:
+                        pass
+                    o.stream = None
+            if not started:
+                raise RuntimeError("Не удалось открыть ни одну колонку: " +
+                                   "; ".join(f"{n}: {e[:60]}" for n, e in self.failed_outputs))
+            self.outputs = started
+            if self._spec_src not in started:
+                self._spec_src = next((o for o in started if not o.is_sub), started[0])
         except Exception as e:
+            for src in self.sources:
+                src._running = False
             for s in streams:
                 try:
-                    s.close()
+                    s.stop(); s.close()
                 except Exception:
                     pass
             raise e
@@ -688,6 +713,7 @@ class App:
             self._select_default(cb, self.out_devs, default_sub)
         elif self.out_devs:
             cb.current(0)
+        cb.bind("<<ComboboxSelected>>", lambda e: self._reapply())
 
         rolev = tk.StringVar(value=role)
         rcb = ttk.Combobox(row, values=list(self.ROLE_BAL.keys()), state="readonly", width=7, font=FONT, textvariable=rolev)
@@ -719,12 +745,16 @@ class App:
         ttk.Button(row, text="✕", width=2, command=lambda: self.remove_output(spk, row)).pack(side="left", padx=2)
 
         self.out_rows.append({"spk": spk, "cb": cb, "mtr": mtr, "delay_var": dv})
+        if self.engine.running:
+            self._reapply()
 
     def remove_output(self, spk, row):
         if spk in self.outputs:
             self.outputs.remove(spk)
         self.out_rows = [r for r in self.out_rows if r["spk"] is not spk]
         row.destroy()
+        if self.engine.running:
+            self._reapply()
 
     def _resolve_outputs(self):
         outs = []
@@ -796,6 +826,8 @@ class App:
             elif self.in_devs:
                 cb.current(0)
 
+        cb.bind("<<ComboboxSelected>>", lambda e: self._reapply())
+
         vol = tk.DoubleVar(value=100)
         vlbl = ttk.Label(row, text="100%", background=PANEL, foreground=FG, width=5)
         ttk.Scale(row, from_=0, to=150, variable=vol, orient="horizontal", length=90,
@@ -819,12 +851,16 @@ class App:
         ttk.Button(row, text="✕", width=2, command=lambda: self.remove_source(src, row)).pack(side="left", padx=2)
 
         self.src_rows.append({"src": src, "cb": cb, "row": row, "loopback": loopback})
+        if self.engine.running:
+            self._reapply()
 
     def remove_source(self, src, row):
         if src in self.sources:
             self.sources.remove(src)
         self.src_rows = [r for r in self.src_rows if r["src"] is not src]
         row.destroy()
+        if self.engine.running:
+            self._reapply()
 
     def _build_eq(self):
         f = ttk.Frame(self.root, style="Panel.TFrame")
@@ -1393,7 +1429,20 @@ class App:
             messagebox.showerror("Splitter", f"Не удалось запустить:\n{e}\n\nПопробуй другое устройство или ⟳ Устройства.")
             return
         self._set_run_btn(True)
-        self.status.config(text="играет")
+        failed = getattr(self.engine, "failed_outputs", [])
+        if failed:
+            names = "\n".join(f"• {n}: {e[:80]}" for n, e in failed)
+            self.status.config(text=f"играет (не открылись: {len(failed)})")
+            messagebox.showwarning("Splitter", "Эти колонки не удалось открыть (играют остальные):\n\n" + names +
+                                   "\n\nЧасто помогает: переподключить устройство, или оно занято/не на 48кГц.")
+        else:
+            self.status.config(text="играет")
+
+    def _reapply(self):
+        # Re-start playback so output/source changes (added/removed/changed device) take effect live.
+        if self.engine.running:
+            self.engine.stop()
+            self._start_playback()
 
     def _auto_stop_test(self, tok):
         if tok == self._test_token and self.engine.running and self.engine.test:
