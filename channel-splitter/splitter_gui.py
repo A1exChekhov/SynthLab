@@ -1196,6 +1196,7 @@ class App:
             time.sleep(0.6)  # warm up
 
             lat = {}
+            dbg = [f"mic_sr={mic_sr} slot={slot}s chirp={chirp_secs}s amp={amp}"]
             for o, st in zip(outs, states):
                 self._set_cal_status(f"замер: {o.name[:18]} ({int(st['f0'])}–{int(st['f1'])} Гц)…")
                 corr_ref = make_chirp(dur=chirp_secs, sr=mic_sr, amp=1.0, f0=st["f0"], f1=st["f1"])
@@ -1204,11 +1205,23 @@ class App:
                 time.sleep(slot)
                 seg = recbuf[cmd:min(ri[0], n_rec)]
                 if seg.size >= len(corr_ref):
-                    corr = fftconvolve(seg, corr_ref[::-1], mode="full")
-                    peak = int(np.argmax(np.abs(corr))) - (len(corr_ref) - 1)
-                    lat[o.id] = max(0.0, peak / mic_sr)
+                    corr = np.abs(fftconvolve(seg, corr_ref[::-1], mode="full"))
+                    pk_idx = int(np.argmax(corr))
+                    peak = pk_idx - (len(corr_ref) - 1)
+                    raw = max(0.0, peak / mic_sr)
+                    lat[o.id] = raw
+                    noise = float(np.median(corr)) + 1e-12
+                    ratio = float(corr[pk_idx]) / noise
+                    seg_rms = float(np.sqrt(np.mean(seg ** 2)))
+                    dbg.append(f"{o.name[:26]}: raw={raw * 1000:.1f}ms peak_ratio={ratio:.1f} seg_rms={seg_rms:.4f} seg={seg.size}")
                 else:
                     lat[o.id] = 0.0
+                    dbg.append(f"{o.name[:26]}: seg too short ({seg.size})")
+            try:
+                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calib_debug.log"), "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(dbg))
+            except Exception:
+                pass
 
             try:
                 inp.stop(); inp.close()
