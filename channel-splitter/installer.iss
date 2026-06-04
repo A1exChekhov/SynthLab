@@ -2,7 +2,7 @@
 ; Build:  ISCC installer.iss   ->  installer_out\ChannelSplitter-Setup.exe
 
 #define MyAppName "Channel Splitter"
-#define MyAppVersion "1.1"
+#define MyAppVersion "2.0"
 #define MyAppPublisher "Errarium"
 #define MyAppExeName "ChannelSplitter.exe"
 
@@ -16,7 +16,7 @@ DefaultDirName={autopf}\Errarium\Channel Splitter
 DefaultGroupName=Channel Splitter
 DisableProgramGroupPage=yes
 OutputDir=installer_out
-OutputBaseFilename=ChannelSplitter-Setup
+OutputBaseFilename=ChannelSplitter-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

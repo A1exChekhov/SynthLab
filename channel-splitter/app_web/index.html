@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel Splitter — концепт (AV-аппаратура)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira:wght@200;300;400;500&family=Saira+Condensed:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dseg@0.46.0/css/dseg.css">
+<style>
+  /* ===== Проф. AV-панель: строго, тонко, чётко ===== */
+  :root{
+    --face-1:#1b1d20; --face-2:#141619; --inset:#0b0c0e; --line:#000;
+    --hi:rgba(255,255,255,.09);
+    --fg:#dadcd8; --fg-2:#9a9d98; --sub:#6c6f6a;
+    --amber:#e8b04b; --amber-dim:#6e5526;
+    --grn:#34d17a; --yel:#e8b04b; --red:#ee5a4a;
+    --sans:"Saira","Segoe UI",system-ui,sans-serif;
+    --cond:"Saira Condensed",var(--sans);
+    --led:"DSEG7 Classic","Saira",monospace;
+    --unit:258px;          /* X  — полная высота модуля (−20%) */
+    --unit-h:124px;        /* X/2 — половинная высота */
+  }
+  /* только два типоразмера высоты модулей */
+  .u-full,.u-half{height:100%}
+  .mod{display:flex;flex-direction:column}
+  .mod .pbody{flex:1;min-height:0;overflow:hidden}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:linear-gradient(180deg,#1a1c1f,#0e0f11),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);
+    color:var(--fg);font-family:var(--sans);font-weight:400;font-size:13px;line-height:1.4;
+    -webkit-font-smoothing:antialiased;letter-spacing:.01em}
+  .wrap{max-width:1500px;margin:0 auto;padding:34px 34px 50px}
+
+  .face{position:relative;background-repeat:no-repeat;background:
+      radial-gradient(circle at 13px 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at calc(100% - 13px) 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at 13px calc(100% - 13px),#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at calc(100% - 13px) calc(100% - 13px),#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      linear-gradient(180deg,var(--face-1),var(--face-2)),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.016) 0 1px,transparent 1px 4px);
+    border:1px solid var(--line);border-radius:3px;
+    box-shadow:inset 0 1px 0 var(--hi),0 8px 24px -14px #000}
+
+  /* индикаторный светодиод */
+  .led-dot{width:7px;height:7px;border-radius:50%;background:#23262a;flex:none;
+    box-shadow:inset 0 0 2px #000,0 0 0 1px #000}
+  .led-dot.on{background:var(--grn);box-shadow:0 0 7px var(--grn),inset 0 0 2px #fff8}
+  .led-dot.amber{background:var(--amber);box-shadow:0 0 7px var(--amber),inset 0 0 2px #fff8}
+
+  /* ===== Шапка ===== */
+  header{display:flex;align-items:center;justify-content:space-between;padding:13px 28px}
+  .brand{display:flex;align-items:center;gap:13px}
+  .mark{font-family:var(--cond);font-weight:300;font-size:23px;letter-spacing:.34em;text-transform:uppercase;color:#e7e9e5}
+  .mark b{color:var(--amber);font-weight:400}
+  .brand small{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.34em;text-transform:uppercase}
+  .by{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.26em;text-transform:uppercase}
+  .by b{color:var(--amber);font-weight:400}
+
+  /* ===== Модуль-плеер (табло «сейчас играет») ===== */
+  .player{display:grid;grid-template-columns:1fr 230px;gap:18px;align-items:stretch;padding:38px 28px 14px}
+  .screen{position:relative;background:linear-gradient(180deg,#070a0b,#04070a);border:1px solid #000;border-radius:3px;
+    box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025);padding:9px 16px;overflow:hidden}
+  .screen::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px)} /* лёгкие сканлайны */
+  .np-label{font-family:var(--cond);font-weight:400;font-size:9.5px;letter-spacing:.36em;text-transform:uppercase;color:var(--grn);
+    text-shadow:0 0 6px rgba(52,209,122,.5);display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .np-label .led-dot{width:6px;height:6px}
+  .np-label{margin-bottom:3px}
+  .np-title{font-family:var(--cond);font-weight:400;font-size:17px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--amber);text-shadow:0 0 9px rgba(232,176,75,.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .np-sub{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-2);margin-top:2px}
+  .prog{display:flex;align-items:center;gap:12px;margin-top:7px}
+  .prog .bar{flex:1;height:4px;border-radius:2px;background:#0a0d0f;border:1px solid #000;overflow:hidden;box-shadow:inset 0 1px 2px #000}
+  .prog .bar i{display:block;height:100%;width:38%;background:linear-gradient(90deg,#6e5526,var(--amber))}
+  .prog .t{font-family:var(--led);color:var(--amber);font-size:12px;text-shadow:0 0 6px rgba(232,176,75,.5)}
+  .params{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-content:center;
+    background:linear-gradient(180deg,#0a0c0e,#070809);border:1px solid #000;border-radius:3px;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);padding:10px 14px}
+  .chip{display:flex;align-items:baseline;justify-content:space-between;
+    font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--sub)}
+  .chip b{font-family:var(--led);font-weight:400;color:var(--amber);font-size:12px;letter-spacing:.02em;
+    text-shadow:0 0 6px rgba(232,176,75,.45)}
+  .player-brand{position:absolute;top:11px;right:74px;font-family:var(--cond);font-weight:300;font-size:9px;
+    letter-spacing:.26em;text-transform:uppercase;color:var(--sub)}
+  .player-brand b{color:var(--amber);font-weight:400}
+  .pl-eject{top:10px;right:34px}
+
+  /* ===== Секции ===== */
+  /* ПРАВИЛО РАСКЛАДКИ:
+     • все модули ОДНОЙ ширины (равные колонки);
+     • если экран широкий — два столбца, если узкий — один (адаптивно);
+     • высота СТРОГО кратна единице: половина = 1 ряд, целый = 2 ряда;
+     • плотная упаковка заполняет пустоты. */
+  .stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(680px,1fr));
+    grid-auto-rows:124px;grid-auto-flow:row dense;gap:10px}
+  .stack>section{min-width:0}
+  .stack>section:has(.u-half){grid-row:span 1}
+  .stack>section:has(.u-full){grid-row:span 2}
+  .stack>section>.face{width:100%;height:100%}
+  /* порядок в гибкой стойке (половинные встают парами) */
+  #mod-player{order:1}#mod-src{order:2}#mod-out{order:3}#mod-eq{order:4}#mod-fx{order:5}#mod-viz{order:6}
+  .phead{display:flex;align-items:center;justify-content:space-between;padding:11px 72px 11px 28px;
+    border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
+  .phead h3{margin:0;font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg)}
+  /* hi-end фейсплейт-маркировка: марка · модель · функция */
+  .fp{display:flex;align-items:baseline;gap:13px;min-width:0}
+  .marque{display:flex;align-items:center;gap:6px;font-family:var(--cond);font-weight:500;font-size:12px;
+    letter-spacing:.36em;text-transform:uppercase;color:#e9ebe7}
+  .marque::before{content:"◆";color:var(--amber);font-size:7px;text-shadow:0 0 5px rgba(232,176,75,.6)}
+  .model{font-family:var(--led);font-size:12px;letter-spacing:.04em;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.45)}
+  .fn{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pbody{padding:4px 28px}
+  .actions{display:flex;gap:8px}
+
+  /* ===== Кнопки: нейтральные ч/б, 3D, одинакового размера ===== */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    height:32px;min-width:130px;padding:0 16px;border-radius:2px;border:1px solid #000;cursor:pointer;
+    font-family:var(--cond);font-weight:400;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:#c4c7c2;
+    background:linear-gradient(180deg,#2a2e33,#191b1e);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.11),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6);
+    transition:background .12s,color .12s,box-shadow .08s,transform .06s}
+  .btn:hover{color:#fff;background:linear-gradient(180deg,#31363c,#1f2226)}
+  .btn:active{transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.7)}
+  .btn .led-dot{width:6px;height:6px}
+
+  /* ===== Строка устройства =====
+     ПРАВИЛО ЕДИНОГО СТИЛЯ: все ряды во всех модулях используют ОДНУ сетку колонок —
+     [устройство | роль | фейдер | индикатор | значение]. Ручки и индикаторы стоят
+     на одинаковом расстоянии от краёв и выровнены строго друг над другом во всех
+     блоках. Если в ряду нет элемента (напр. нет роли у источника) — ставится пустая
+     ячейка-placeholder, а не меняется сетка. */
+  .row{display:grid;grid-template-columns:minmax(130px,1.5fr) 196px minmax(70px,1.2fr) minmax(90px,1.5fr) 58px;
+    gap:14px;align-items:center;height:60px;border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
+  .row:last-child{border-bottom:0;box-shadow:none}
+  .dev{display:flex;align-items:center;gap:12px;min-width:0}
+  .dev .nm{font-weight:400;font-size:14px;letter-spacing:.03em;color:#e3e5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dev .meta{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-top:2px}
+
+  /* переключатель роли: нейтральные клавиши + LED активной */
+  .seg{display:inline-grid;grid-template-columns:repeat(4,1fr);width:196px;height:30px;
+    border:1px solid #000;border-radius:2px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 2px 3px rgba(0,0,0,.5)}
+  .seg button{position:relative;appearance:none;border:0;border-left:1px solid #000;cursor:pointer;
+    font-family:var(--cond);font-weight:400;font-size:11px;letter-spacing:.08em;color:var(--fg-2);
+    background:linear-gradient(180deg,#24272c,#17191c);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:.12s;
+    padding-top:5px}
+  .seg button:first-child{border-left:0}
+  .seg button:hover{color:#fff}
+  .seg button.on{color:#fff;background:linear-gradient(180deg,#14161a,#1b1e22);box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
+  .seg button.on::before{content:"";position:absolute;left:50%;top:4px;transform:translateX(-50%);
+    width:13px;height:2px;border-radius:1px;background:var(--amber);box-shadow:0 0 6px var(--amber)}
+
+  /* ===== Реалистичный горизонтальный фейдер ===== */
+  .fader{position:relative;height:26px;display:flex;align-items:center}
+  .fader .trk{position:absolute;left:2px;right:2px;height:6px;border-radius:3px;background:var(--inset);
+    box-shadow:inset 0 1px 2px #000,inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px #000}
+  .fader .trk::before{content:"";position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:rgba(255,255,255,.10)}
+  .fader .cap{position:absolute;top:1px;left:var(--p,55%);transform:translateX(-50%);
+    width:14px;height:24px;border-radius:2px;border:1px solid #000;
+    background:linear-gradient(180deg,#42474e 0,#2a2e33 48%,#1b1e22 52%,#23262b 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 3px rgba(0,0,0,.6),0 3px 5px rgba(0,0,0,.7)}
+  .fader .cap::before{content:"";position:absolute;left:3px;right:3px;top:50%;height:1px;background:#000;
+    box-shadow:0 -3px 0 rgba(0,0,0,.5),0 3px 0 rgba(0,0,0,.5)}
+
+  /* ===== Трёхцветный сегментный LED (горизонтальный) ===== */
+  .vu{position:relative;height:11px;border-radius:2px;border:1px solid #000;overflow:hidden;
+    background:linear-gradient(90deg,var(--grn) 0 58%,var(--yel) 58% 84%,var(--red) 84% 100%);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
+  .vu::before{content:"";position:absolute;top:0;bottom:0;right:0;left:var(--v,60%);background:var(--inset);box-shadow:inset 2px 0 4px rgba(0,0,0,.6)}
+  .vu::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 5px,#000 5px 7px)}
+
+  /* ===== LED-цифры (семисегмент) ===== */
+  .led{font-family:var(--led);color:var(--amber);font-size:13px;letter-spacing:.04em;
+    text-shadow:0 0 7px rgba(232,176,75,.5);font-variant-numeric:tabular-nums;text-align:right}
+
+  /* ===== Графический EQ: фейдер + индикатор рядом ===== */
+  .eq{display:grid;grid-template-columns:repeat(12,1fr);align-items:end;padding:6px 0 0}
+  .band{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .vrow{display:flex;align-items:flex-end;gap:6px;height:160px}
+  /* вертикальный сегментный LED-индикатор полосы */
+  .vmeter{position:relative;width:4px;height:158px;border-radius:2px;border:1px solid #000;overflow:hidden;
+    background:linear-gradient(0deg,var(--grn) 0 58%,var(--yel) 58% 84%,var(--red) 84% 100%);box-shadow:inset 0 0 3px #000}
+  .vmeter::before{content:"";position:absolute;left:0;right:0;top:0;height:calc(100% - var(--v,50%));background:var(--inset)}
+  .vmeter::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 3px,#000 3px 4px)}
+  .vslot{position:relative;width:28px;height:158px}
+  .vslot .vtrk{position:absolute;left:50%;top:4px;bottom:4px;width:6px;transform:translateX(-50%);border-radius:3px;background:var(--inset);
+    box-shadow:inset 0 0 3px #000,inset 0 1px 2px #000,0 0 0 1px #000}
+  .vslot .vtrk::before{content:"";position:absolute;left:-5px;right:-5px;top:50%;height:1px;background:rgba(255,255,255,.12)}
+  .vslot .vcap{position:absolute;left:50%;transform:translate(-50%,-50%);top:var(--pos,45%);
+    width:22px;height:12px;border-radius:2px;border:1px solid #000;
+    background:linear-gradient(180deg,#454a51 0,#2c3035 48%,#1c1f23 52%,#24272c 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 3px rgba(0,0,0,.6),0 3px 5px rgba(0,0,0,.7)}
+  .vslot .vcap::before{content:"";position:absolute;left:3px;right:3px;top:50%;height:1px;background:#000;box-shadow:0 -3px 0 rgba(0,0,0,.45),0 3px 0 rgba(0,0,0,.45)}
+  .band span{font-family:var(--cond);font-weight:300;font-size:10px;color:var(--sub);letter-spacing:.08em}
+
+  /* ===== Транспорт ===== */
+  .transport{display:flex;align-items:center;gap:16px;margin-top:10px;padding:14px 26px}
+  .power{display:inline-flex;align-items:center;gap:10px;height:40px;min-width:118px;padding:0 22px;border-radius:2px;cursor:pointer;border:1px solid #000;
+    font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#dadcd8;
+    background:linear-gradient(180deg,#2c3036,#191b1e);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6)}
+  .power:active{transform:translateY(1px)}
+  .power .led-dot{width:7px;height:7px}
+  .stat{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
+  .master{display:flex;align-items:center;gap:12px;margin-left:6px}
+  .master .fader{width:150px}
+  .feature{margin-left:auto;display:flex;gap:8px}
+  .feature .btn{min-width:0;padding:0 14px}
+
+  /* ===== Выбор модулей стойки ===== */
+  .chooser{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:11px 28px}
+  .chooser .lbl{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--sub);margin-right:6px}
+  .chip-tog{min-width:0;padding:0 12px;height:28px}
+  .chip-tog .led-dot{width:6px;height:6px}
+  /* eject — убрать модуль */
+  .eject,.ico{min-width:0;width:28px;height:28px;padding:0;font-size:12px;letter-spacing:0}
+  /* eject во ВСЕХ модулях — в одной точке (строго одна вертикаль) */
+  .eject{position:absolute;top:10px;right:34px;z-index:5}
+
+  /* ===== Спецэффекты: 2D-пэды + регуляторы ===== */
+  .fxpads{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:6px 0 2px}
+  .fxbody{display:flex;flex-direction:column;height:100%}
+  .fxpads{flex:1;min-height:0}
+  .pad{position:relative;height:100%;border:1px solid #000;border-radius:3px;background:#070a0b;overflow:hidden;
+    box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025)}
+  .pad::before{content:"";position:absolute;inset:0;
+    background:
+      linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.07) 50%,transparent calc(50% + .5px)),
+      linear-gradient(0deg,transparent calc(50% - .5px),rgba(255,255,255,.07) 50%,transparent calc(50% + .5px)),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.022) 0 1px,transparent 1px 22px),
+      repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 22px)}
+  .pad-t{position:absolute;top:8px;left:11px;z-index:2;font-family:var(--cond);font-weight:400;font-size:10px;
+    letter-spacing:.26em;text-transform:uppercase;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.4)}
+  .pad-x{position:absolute;bottom:7px;right:11px;font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
+  .pad-y{position:absolute;bottom:7px;left:11px;font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
+  .handle{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);z-index:3}
+  .handle::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;transform:translateX(-50%);background:rgba(232,176,75,.55);box-shadow:0 0 4px rgba(232,176,75,.5)}
+  .handle::after{content:"";position:absolute;top:50%;left:0;right:0;height:1px;transform:translateY(-50%);background:rgba(232,176,75,.55);box-shadow:0 0 4px rgba(232,176,75,.5)}
+  .handle b{position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%);background:var(--amber);box-shadow:0 0 9px var(--amber)}
+  .fxfaders{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:10px;padding-top:12px;border-top:1px solid #000;box-shadow:inset 0 1px 0 var(--hi)}
+  .fxf{display:flex;flex-direction:column;gap:8px}
+  .fxf .top{display:flex;align-items:baseline;justify-content:space-between}
+  .fxf .nm{font-family:var(--cond);font-weight:300;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-2)}
+  .phase{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid #000;box-shadow:inset 0 1px 0 var(--hi);flex-wrap:wrap}
+  .phase .lbl{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--sub)}
+
+  /* ===== Цветомузыка: видео-экран в стойке ===== */
+  .vizbody{display:flex;flex-direction:column;height:100%}
+  .viz-screen{position:relative;flex:1;min-height:0;border:1px solid #000;border-radius:3px;overflow:hidden;
+    background:
+      radial-gradient(58% 78% at 34% 42%,rgba(25,195,214,.30),transparent 60%),
+      radial-gradient(66% 86% at 70% 60%,rgba(232,176,75,.26),transparent 60%),
+      radial-gradient(42% 60% at 52% 50%,rgba(52,209,122,.20),transparent 62%),
+      repeating-radial-gradient(circle at 50% 50%,rgba(255,255,255,.05) 0 1px,transparent 1px 26px),
+      #050607;
+    box-shadow:inset 0 2px 14px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.02)}
+  .viz-screen::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 2px,transparent 2px 4px)}
+  .viz-tag{position:absolute;top:10px;left:14px;z-index:2;font-family:var(--led);font-size:12px;color:var(--amber);text-shadow:0 0 7px rgba(232,176,75,.5)}
+  .viz-hint{position:absolute;bottom:10px;right:14px;z-index:2;font-family:var(--cond);font-weight:300;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#cfd2cd}
+  .seg.sm{width:auto;height:26px}
+  .seg.sm button{padding:0 12px}
+
+  .foot{margin-top:22px;font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.2em;text-transform:uppercase;text-align:center}
+  .foot b{color:var(--amber)}
+  .concept{margin:0 0 22px;color:var(--sub);font-size:11px;letter-spacing:.04em;border-left:2px solid var(--amber-dim);padding:3px 0 3px 14px;font-family:var(--cond);font-weight:300}
+  .concept b{color:var(--amber);font-weight:400}
+  /* live canvas-визуализатор внутри модуля */
+  #viz-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .fxtog{cursor:pointer;user-select:none}
+  .fxtog.on{color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.4)}
+  .pad-t{cursor:pointer;user-select:none}
+  .pad.on .pad-t{color:var(--amber)}
+  .pad .handle{display:none}
+  .pad.on .handle{display:block}
+  .dev .nm[contenteditable]{outline:none}
+  select.devsel{appearance:none;background:linear-gradient(180deg,#1d2024,#141619);color:var(--fg);
+    border:1px solid #000;border-radius:3px;font-family:var(--cond);font-size:12px;letter-spacing:.04em;
+    padding:5px 8px;max-width:100%;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+  .meta select.devsel{font-size:10px;padding:2px 6px;color:var(--sub)}
+  .mute-on{color:var(--red)!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="chooser">
+    <span class="lbl">Rack</span>
+    <button class="btn chip-tog" id="chip-mod-player" onclick="toggleMod('mod-player')"><span class="led-dot on"></span> Player</button>
+    <button class="btn chip-tog" id="chip-mod-out" onclick="toggleMod('mod-out')"><span class="led-dot on"></span> Matrix</button>
+    <button class="btn chip-tog" id="chip-mod-src" onclick="toggleMod('mod-src')"><span class="led-dot on"></span> Pre-Amp</button>
+    <button class="btn chip-tog" id="chip-mod-eq" onclick="toggleMod('mod-eq')"><span class="led-dot on"></span> EQ</button>
+    <button class="btn chip-tog" id="chip-mod-fx" onclick="toggleMod('mod-fx')"><span class="led-dot on"></span> DSP</button>
+    <button class="btn chip-tog" id="chip-mod-viz" onclick="toggleMod('mod-viz')"><span class="led-dot on"></span> Analyzer</button>
+  </div>
+
+  <div class="stack" style="margin-top:10px">
+
+    <!-- Плеер -->
+    <section id="mod-player">
+      <div class="face player u-half">
+        <button class="btn eject pl-eject" onclick="setVis('mod-player',false)">✕</button>
+        <div class="player-brand"><b>Errarium</b> · MS-110 · Media Transport</div>
+        <div class="screen">
+          <div class="np-label"><span class="led-dot on" id="np-led"></span> <span id="np-src">Now Playing</span></div>
+          <div class="np-title" id="np-title">—</div>
+          <div class="np-sub" id="np-sub"></div>
+          <div class="prog"><span class="t" id="np-cur">00:00</span><div class="bar"><i id="np-bar"></i></div><span class="t" id="np-tot">00:00</span></div>
+        </div>
+        <div class="params" id="player-params"></div>
+      </div>
+    </section>
+
+    <!-- Выходы -->
+    <section id="mod-out">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">MX-840</span><span class="fn">Output Matrix</span></div>
+          <div class="actions"><button class="btn" id="btn-add-out">+ Output</button><button class="btn eject" onclick="setVis('mod-out',false)">✕</button></div></div>
+        <div class="pbody" id="rows-out"></div>
+      </div>
+    </section>
+
+    <!-- Источники -->
+    <section id="mod-src">
+      <div class="face mod u-half">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">PA-220</span><span class="fn">Preamplifier</span></div>
+          <div class="actions">
+            <button class="btn" id="btn-add-sys">+ System</button>
+            <button class="btn" id="btn-add-src">+ Source</button>
+            <button class="btn eject" onclick="setVis('mod-src',false)">✕</button>
+          </div></div>
+        <div class="pbody" id="rows-src"></div>
+      </div>
+    </section>
+
+    <!-- Эквалайзер -->
+    <section id="mod-eq">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">EQ-12</span><span class="fn">Graphic Equalizer</span></div>
+          <div class="actions">
+            <button class="btn" id="btn-eq-on">EQ Off</button>
+            <button class="btn" id="btn-eq-presets">Presets</button>
+            <button class="btn" id="btn-eq-reset">Reset</button>
+            <button class="btn eject" onclick="setVis('mod-eq',false)">✕</button>
+          </div></div>
+        <div class="pbody"><div class="eq" id="eq-bands"></div></div>
+      </div>
+    </section>
+
+    <!-- Спецэффекты -->
+    <section id="mod-fx">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">DSP-900</span><span class="fn">Effects Processor</span></div>
+          <div class="actions"><button class="btn eject" onclick="setVis('mod-fx',false)">✕</button></div></div>
+        <div class="pbody fxbody">
+          <div class="fxpads">
+            <div class="pad" id="pad-space"><div class="pad-t">Space ⏻</div><div class="pad-y">↑ Depth</div><div class="pad-x">Width →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-pos"><div class="pad-t">Position ⏻</div><div class="pad-y">↑ Near</div><div class="pad-x">Pan →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-tone"><div class="pad-t">Tone ⏻</div><div class="pad-y">↑ Drive</div><div class="pad-x">Warm·Bright →</div><div class="handle"><b></b></div></div>
+          </div>
+          <div class="fxfaders">
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-comp" data-fx="comp">Compressor · OFF</span><span class="led" id="led-comp">-18</span></div><div class="fader" id="fader-comp"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-mb" data-fx="mb">Mono-Bass · OFF</span><span class="led" id="led-mb">120</span></div><div class="fader" id="fader-mb"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-rev" data-fx="rev">Reverb · OFF</span><span class="led" id="led-rev">22</span></div><div class="fader" id="fader-rev"><div class="trk"></div><div class="cap"></div></div></div>
+          </div>
+          <div class="phase"><span class="lbl">Phase Ø</span><div class="seg sm" id="phase-seg"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Цветомузыка -->
+    <section id="mod-viz">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">SA-100</span><span class="fn">Spectrum Analyzer</span></div>
+          <div class="actions">
+            <div class="seg sm" id="viz-color"><button class="on" data-cm="0">Color</button><button data-cm="1">B&amp;W</button><button data-cm="2">Mono</button></div>
+            <button class="btn" id="btn-viz-open">Open GPU</button>
+            <button class="btn eject" onclick="setVis('mod-viz',false)">✕</button>
+          </div></div>
+        <div class="pbody vizbody">
+          <div class="viz-screen"><canvas id="viz-canvas"></canvas><div class="viz-hint">live preview · «Open GPU» — full screen / 4K</div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Транспорт / Master -->
+  <div class="face transport u-half">
+    <button class="power" id="btn-power"><span class="led-dot" id="power-led"></span> <span id="power-txt">OFF</span></button>
+    <div class="stat" id="transport-stat">stopped</div>
+    <div class="master"><span class="stat">Master</span>
+      <div class="fader" id="master-fader"><div class="trk"></div><div class="cap"></div></div>
+      <span class="led" id="master-led">100</span></div>
+    <div class="feature">
+      <button class="btn" id="btn-devices">Devices</button>
+      <button class="btn" id="btn-calib">Calibrate</button>
+      <button class="btn" id="btn-fx">Effects</button>
+      <button class="btn" id="btn-viz">Visualizer</button>
+    </div>
+  </div>
+
+  <div class="foot">© 2026 <b>Errarium™</b> · Channel Splitter</div>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>

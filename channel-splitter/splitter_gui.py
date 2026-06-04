@@ -14,10 +14,12 @@ two speakers. Each output is its own WASAPI stream with per-source ring
 buffers so independent (Bluetooth) clocks don't click.
 """
 
+import colorsys
 import json
 import math
 import os
 import queue
+import random
 import threading
 import time
 import tkinter as tk
@@ -33,6 +35,15 @@ try:
 except Exception:
     _sc = None
     HAVE_LOOPBACK = False
+
+try:
+    import moderngl as _mgl
+    import glfw as _glfw
+    HAVE_GPU = True
+except Exception:
+    _mgl = None
+    _glfw = None
+    HAVE_GPU = False
 
 
 def make_chirp(dur=1.0, f0=120.0, f1=8000.0, sr=48000, amp=0.16):
@@ -91,6 +102,19 @@ def refresh_portaudio():
         sd._terminate(); sd._initialize()
     except Exception:
         pass
+
+
+def user_data_dir():
+    """Стабильная пользовательская папка для пресетов/настроек.
+    Переживает обновления и переустановки (не лежит в каталоге программы)."""
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME") \
+        or os.path.join(os.path.expanduser("~"), ".config")
+    d = os.path.join(base, "Errarium", "ChannelSplitter")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
 
 
 def devices(want_output):
@@ -226,6 +250,7 @@ class OutputSpk:
         self.idx = idx
         self.name = name
         self.bal = -1.0      # -1 = LEFT channel, 0 = mono, +1 = RIGHT channel
+        self.stereo = False  # True = полноценный стерео-выход (наушники): L→L, R→R
         self.vol = 1.0
         self.mute = False
         self.is_sub = False  # subwoofer => low-pass crossover (bass only)
@@ -236,6 +261,7 @@ class OutputSpk:
         self.stream = None
         self.delay_ms = 0.0          # latency-compensation delay
         self.delay_samples = 0
+        self.inv = False             # phase invert (fix anti-phase between speakers)
 
     def set_delay(self, ms):
         self.delay_ms = max(0.0, float(ms))
@@ -265,10 +291,49 @@ class Engine:
         self.spatial_on = False; self.spatial = 1.0    # stereo width factor (1..2)
         self.threeD_on = False; self.threeD = 0.0      # 3D depth 0..1 (crossfeed/Haas)
         self.surround_on = False; self.surround = 0.0  # pseudo 7.1 surround 0..1 (early reflections)
+        # ── premium FX (all neutral / off by default → звук не меняется) ──
+        self.monobass_on = False; self.monobass_hz = 120.0   # bass below Hz → mono
+        self.pos_on = False; self.pan = 0.0; self.distance = 0.0  # 2D position pad
+        self.tone_on = False; self.tilt = 0.0; self.drive = 0.0   # 2D tone pad
+        self.reverb_on = False; self.reverb_size = 0.5; self.reverb_mix = 0.22
+        self.comp_on = False; self.comp_thresh = -18.0; self.comp_ratio = 2.5
+        self._rv_combs = [1187, 1289, 1399, 1511]   # comb delays (all > BLOCK)
+        self._rv_aps = [1051, 1213]                 # all-pass delays (all > BLOCK)
+        self._mb_sos = None
+        self._dist_sos = None
         self._spat_maxd = int(SR * 0.08) + 1
         self.spectrum = np.zeros(len(EQ_FREQS), dtype=np.float64)
+        # ── live analysis for the colour-music visualizer ──
+        self.VIZ_N = 64
+        self._viz_edges = np.geomspace(30.0, 16000.0, self.VIZ_N + 1)
+        self.viz_bands = np.zeros(self.VIZ_N, dtype=np.float64)  # smoothed magnitudes 0..1
+        self.viz_level = 0.0       # overall RMS 0..1
+        self.viz_centroid = 0.5    # spectral centroid (log) 0..1  (низкий→0, высокий→1)
+        self.viz_bass = 0.0
+        self.viz_mid = 0.0
+        self.viz_treble = 0.0
+        self.viz_beat = 0.0        # set to 1.0 on a detected beat, decays in UI
+        self._viz_bass_avg = 1e-4
+        self.VIZ_W = 512
+        self.viz_wave = np.full(self.VIZ_W, 0.5, dtype=np.float32)  # осциллограмма 0..1
+        # пользовательский стиль цветомузыки (читается GPU-движком вживую)
+        self.viz_cfg = {
+            "color_mode": 0,    # 0=Цвет, 1=Ч/Б, 2=Монотон
+            "mono_hue": 0.55,   # оттенок для монотона (0..1)
+            "saturation": 1.0,  # 0..1.3
+            "decay": 0.955,     # тягучесть/шлейфы 0.90..0.992
+            "speed": 1.0,       # скорость движения 0.2..2.5
+            "warp": 1.0,        # искажение/зум 0..2
+            "swirl": 1.0,       # вихрь 0..2
+            "bloom": 0.12,      # свечение 0..0.4
+            "gain": 1.0,        # яркость линий 0.3..2
+            "linew": 1.0,       # толщина линий 0.4..2 (тоньше=эстетичнее)
+            "react": 1.0,       # чувствительность к звуку 0.3..2
+            "bursts": 1.0,      # всплески/лучи/вспышки 0..1
+        }
         self.eq_sos = None
         self.build_eq()
+        self.build_monobass()
         self.outputs = []        # list[OutputSpk]
         self._spec_src = None    # output whose signal feeds the EQ spectrum
         self.failed_outputs = []
@@ -279,11 +344,89 @@ class Engine:
             rows += [_peaking_sos(f, EQ_Q, g, SR) for f, g in zip(EQ_FREQS, self.eq_gains)]
         if self.bass_on and self.bass > 0:
             rows.append(_lowshelf_sos(110.0, self.bass, SR))
+        if self.tone_on and self.tilt != 0.0:
+            # tilt: <0 = тепло (бас↑/верх↓), >0 = ярко (бас↓/верх↑)
+            t = max(-1.0, min(1.0, self.tilt))
+            rows.append(_lowshelf_sos(180.0, -t * 6.0, SR))
+            rows.append(_highshelf_sos(4500.0, t * 6.0, SR))
         self.eq_sos = np.array(rows, dtype=np.float64) if rows else None
 
+    def build_monobass(self):
+        fc = max(40.0, min(self.monobass_hz, 400.0))
+        self._mb_sos = butter(2, fc / (SR / 2), btype="low", output="sos")
+
+    def set_distance(self, d):
+        self.distance = max(0.0, min(1.0, float(d)))
+        if self.distance > 0.001:
+            fc = max(1400.0, 20000.0 * (1.0 - 0.9 * self.distance))
+            self._dist_sos = butter(2, min(fc, SR / 2 - 1) / (SR / 2), btype="low", output="sos")
+        else:
+            self._dist_sos = None
+
+    def _reverb(self, st, x, frames):
+        """Block-wise Schroeder reverb (4 combs → 2 all-pass). All delays > frames."""
+        combs = self._rv_combs
+        aps = self._rv_aps
+        if frames > min(combs + aps):
+            return x  # огромный блок — пропускаем (страховка)
+        g = 0.70 + 0.22 * max(0.0, min(1.0, self.reverb_size))
+        rv = st.get("rv")
+        if rv is None:
+            rv = {"c": [np.zeros(d, dtype=np.float32) for d in combs],
+                  "ax": [np.zeros(d, dtype=np.float32) for d in aps],
+                  "ay": [np.zeros(d, dtype=np.float32) for d in aps]}
+            st["rv"] = rv
+        acc = np.zeros(frames, dtype=np.float32)
+        for k, D in enumerate(combs):
+            hist = rv["c"][k]
+            y = x + g * hist[:frames]               # y[n] = x[n] + g·y[n-D]
+            rv["c"][k] = np.concatenate([hist, y])[-D:]
+            acc += y
+        acc *= (1.0 / len(combs))
+        ga = 0.5
+        out = acc
+        for k, D in enumerate(aps):
+            xh = rv["ax"][k]; yh = rv["ay"][k]
+            y = -ga * out + xh[:frames] + ga * yh[:frames]
+            rv["ax"][k] = np.concatenate([xh, out])[-D:]
+            rv["ay"][k] = np.concatenate([yh, y])[-D:]
+            out = y
+        return out.astype(np.float32)
+
+    def _compress(self, st, x, frames):
+        """Gentle block-rate bus compressor + soft limiter ceiling."""
+        pk = float(np.max(np.abs(x))) if x.size else 0.0
+        lvl = 20.0 * math.log10(pk + 1e-6)
+        th = self.comp_thresh
+        ratio = max(1.1, self.comp_ratio)
+        over = lvl - th
+        gr = over * (1.0 / ratio - 1.0) if over > 0 else 0.0      # dB (<=0)
+        makeup = -th * (1.0 - 1.0 / ratio) * 0.5                  # auto makeup
+        target = 10.0 ** ((gr + makeup) / 20.0)
+        prev = st.get("cg", 1.0)
+        a = 0.45 if target < prev else 0.12                       # fast attack / slow release
+        g = prev + (target - prev) * a
+        st["cg"] = g
+        ramp = np.linspace(prev, g, frames, dtype=np.float32)
+        y = x * ramp
+        c = 0.98                                                  # soft limiter ceiling
+        return (c * np.tanh(y / c)).astype(np.float32)
+
     def _apply_spatial(self, st, sumL, sumR, frames):
-        if not (self.spatial_on or self.threeD_on or self.surround_on):
+        if not (self.spatial_on or self.threeD_on or self.surround_on
+                or self.monobass_on or self.pos_on):
             return sumL, sumR
+        # mono-bass: ниже частоты бас → моно (плотнее, не «гуляет» между колонками)
+        if self.monobass_on and self._mb_sos is not None:
+            if st.get("mbL") is None or st["mbL"].shape[0] != self._mb_sos.shape[0]:
+                st["mbL"] = np.zeros((self._mb_sos.shape[0], 2))
+                st["mbR"] = np.zeros((self._mb_sos.shape[0], 2))
+            lowL, st["mbL"] = sosfilt(self._mb_sos, sumL, zi=st["mbL"])
+            lowR, st["mbR"] = sosfilt(self._mb_sos, sumR, zi=st["mbR"])
+            lowM = (lowL + lowR) * 0.5
+            sumL = (sumL - lowL) + lowM
+            sumR = (sumR - lowR) + lowM
+            sumL = sumL.astype(np.float32); sumR = sumR.astype(np.float32)
         MAXD = self._spat_maxd
         if st.get("tL") is None or st["tL"].shape[0] != MAXD:
             st["tL"] = np.zeros(MAXD, dtype=np.float32)
@@ -317,6 +460,17 @@ class Engine:
 
             outL = outL + a * (0.45 * dm(19) + 0.35 * dm(29) + 0.28 * dm(41) + 0.22 * dm(57))
             outR = outR + a * (0.45 * dm(23) + 0.33 * dm(33) + 0.26 * dm(47) + 0.20 * dm(61))
+        # 2D POSITION: equal-power pan (X) + distance level (Y)
+        if self.pos_on:
+            theta = (max(-1.0, min(1.0, self.pan)) + 1.0) * 0.25 * math.pi
+            gL = math.cos(theta) * 1.41421356
+            gR = math.sin(theta) * 1.41421356
+            outL = outL * gL
+            outR = outR * gR
+            if self.distance > 0.001:
+                lvl = 1.0 - 0.6 * self.distance
+                outL = outL * lvl
+                outR = outR * lvl
         st["tL"] = extL[-MAXD:]
         st["tR"] = extR[-MAXD:]
         return outL.astype(np.float32), outR.astype(np.float32)
@@ -331,6 +485,51 @@ class Engine:
         for i, (lo, hi) in enumerate(EQ_EDGES):
             m = (freqs >= lo) & (freqs < hi)
             sp[i] = (float(mag[m].mean()) * EQ_TILT[i]) if m.any() else 0.0
+        self._update_viz(x, mag, freqs)
+
+    def _update_viz(self, x, mag, freqs):
+        """High-resolution features for the colour-music visualizer."""
+        # log-spaced band magnitudes via reduceat (fast)
+        idx = np.clip(np.searchsorted(freqs, self._viz_edges), 0, len(mag))
+        N = self.VIZ_N
+        bands = np.zeros(N, dtype=np.float64)
+        for i in range(N):
+            a, b = idx[i], idx[i + 1]
+            if b > a:
+                bands[i] = mag[a:b].mean()
+        # perceptual lift (AGC в UI приведёт к полному размаху)
+        bands = np.sqrt(bands) * 6.0
+        prev = self.viz_bands
+        # very fast attack, slow release → резко и живо
+        self.viz_bands = np.where(bands > prev, bands, prev * 0.86 + bands * 0.14)
+        # overall level
+        rms = float(np.sqrt(np.mean(x * x))) if x.size else 0.0
+        self.viz_level = rms
+        # spectral centroid (log-normalized 0..1)
+        msum = float(mag.sum()) + 1e-9
+        cen = float((freqs * mag).sum()) / msum
+        cen = max(40.0, min(cen, 16000.0))
+        self.viz_centroid = (math.log2(cen / 40.0)) / math.log2(16000.0 / 40.0)
+        # band energies
+        bass = float(mag[freqs < 160].mean()) if (freqs < 160).any() else 0.0
+        midm = (freqs >= 160) & (freqs < 2000)
+        treb = freqs >= 2000
+        self.viz_mid = float(mag[midm].mean()) if midm.any() else 0.0
+        self.viz_treble = float(mag[treb].mean()) if treb.any() else 0.0
+        self.viz_bass = bass
+        # beat detection on bass energy (чувствительнее)
+        avg = self._viz_bass_avg
+        self._viz_bass_avg = 0.95 * avg + 0.05 * bass
+        if bass > avg * 1.28 and bass > 0.0025:
+            self.viz_beat = 1.0
+        # waveform (осциллоскоп) — даунсемпл к VIZ_W, нормализуем 0..1
+        W = self.VIZ_W
+        n = x.shape[0]
+        if n >= W:
+            wv = x[:(n // W) * W:(n // W)][:W]
+        else:
+            wv = np.interp(np.linspace(0, 1, W), np.linspace(0, 1, n), x) if n > 1 else np.zeros(W)
+        self.viz_wave = (np.clip(wv * 4.0, -1.0, 1.0) * 0.5 + 0.5).astype(np.float32)
 
     def _pull(self, src, oid, frames):
         q = src.queues.get(oid)
@@ -347,17 +546,65 @@ class Engine:
         src.bufs[oid] = b[frames:]
         return block  # (frames, 2)
 
+    def _chain(self, out, st, x, frames, ck):
+        """Полная обработка одного канала (EQ → FX → кроссовер → громк. → фаза → задержка).
+        ck — ключ канала ('m' для моно, 'L'/'R' для стерео) — чтобы у каждого
+        канала было своё состояние фильтров."""
+        if not out.is_sub:
+            sos = self.eq_sos
+            if sos is not None and sos.shape[0] > 0:
+                k = "eqzi_" + ck
+                if st.get(k) is None or st[k].shape[0] != sos.shape[0]:
+                    st[k] = np.zeros((sos.shape[0], 2))
+                x, st[k] = sosfilt(sos, x, zi=st[k])
+            if self.tone_on and self.drive > 0:
+                d = 1.0 + self.drive * 4.0
+                x = (np.tanh(x * d) / math.tanh(d)).astype(np.float32)
+            if self.pos_on and self._dist_sos is not None:
+                k = "dz_" + ck
+                if st.get(k) is None or st[k].shape[0] != self._dist_sos.shape[0]:
+                    st[k] = np.zeros((self._dist_sos.shape[0], 2))
+                x, st[k] = sosfilt(self._dist_sos, x, zi=st[k])
+                x = x.astype(np.float32)
+            if self.reverb_on and self.reverb_mix > 0:
+                wet = self._reverb(st.setdefault("rv_" + ck, {}), x, frames)
+                m = self.reverb_mix
+                x = (x * (1.0 - m) + wet * m).astype(np.float32)
+            if self.comp_on:
+                x = self._compress(st.setdefault("cmp_" + ck, {}), x, frames)
+        xs = out.sos
+        if xs is not None:
+            k = "xzi_" + ck
+            if st.get(k) is None or st[k].shape[0] != xs.shape[0]:
+                st[k] = np.zeros((xs.shape[0], 2))
+            x, st[k] = sosfilt(xs, x, zi=st[k])
+        g = 0.0 if out.mute else out.vol
+        x = (x * g * self.master).astype(np.float32)
+        if out.inv:
+            x = -x
+        dsamp = out.delay_samples
+        if dsamp > 0:
+            k = "dly_" + ck
+            dly = st.get(k)
+            if dly is None or dly.shape[0] != dsamp:
+                dly = np.zeros(dsamp, dtype=np.float32)
+            ext = np.concatenate([dly, x])
+            x = ext[:frames].astype(np.float32)
+            st[k] = ext[frames:]
+        return x
+
     def _out_cb(self, out, tone_hz):
-        state = {"eqzi": None, "xzi": None, "sp": {}, "ph": 0}
+        state = {"sp": {}, "ph": 0}
 
         def cb(outdata, frames, _t, _s):
+            nch = outdata.shape[1]
             if self.test:
                 if out.test_on:
                     tt = (state["ph"] + np.arange(frames)) / SR
                     state["ph"] += frames
-                    mix = (0.2 * np.sin(2 * np.pi * tone_hz * tt)).astype(np.float32)
+                    sumL = sumR = (0.2 * np.sin(2 * np.pi * tone_hz * tt)).astype(np.float32)
                 else:
-                    mix = np.zeros(frames, dtype=np.float32)
+                    sumL = sumR = np.zeros(frames, dtype=np.float32)
             else:
                 sumL = np.zeros(frames, dtype=np.float32)
                 sumR = np.zeros(frames, dtype=np.float32)
@@ -370,36 +617,25 @@ class Engine:
                     sumL = sumL + block[:, 0] * (v * lg)
                     sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * (v * rg)
                 sumL, sumR = self._apply_spatial(state["sp"], sumL, sumR, frames)
+
+            if out.stereo and not out.is_sub:
+                # полноценный стерео-выход (наушники): L→L, R→R, эффекты по каналам
+                L = self._chain(out, state, sumL, frames, "L")
+                R = self._chain(out, state, sumR, frames, "R")
+                if out is self._spec_src:
+                    self._update_spectrum((L + R) * 0.5)
+                out.peak = float(max(np.max(np.abs(L)) if L.size else 0.0,
+                                     np.max(np.abs(R)) if R.size else 0.0))
+                for c in range(nch):
+                    outdata[:, c] = L if (c % 2 == 0) else R
+            else:
                 b = out.bal
                 mix = sumL * (0.5 - b * 0.5) + sumR * (0.5 + b * 0.5)
-            # global EQ on full-range speakers only
-            if not out.is_sub:
-                sos = self.eq_sos
-                if sos is not None and sos.shape[0] > 0:
-                    if state["eqzi"] is None or state["eqzi"].shape[0] != sos.shape[0]:
-                        state["eqzi"] = np.zeros((sos.shape[0], 2))
-                    mix, state["eqzi"] = sosfilt(sos, mix, zi=state["eqzi"])
-            # subwoofer crossover (low-pass)
-            xs = out.sos
-            if xs is not None:
-                if state["xzi"] is None or state["xzi"].shape[0] != xs.shape[0]:
-                    state["xzi"] = np.zeros((xs.shape[0], 2))
-                mix, state["xzi"] = sosfilt(xs, mix, zi=state["xzi"])
-            g = 0.0 if out.mute else out.vol
-            mix = (mix * g * self.master).astype(np.float32)
-            # per-output latency-compensation delay line
-            dsamp = out.delay_samples
-            if dsamp > 0:
-                dly = state.get("dly")
-                if dly is None or dly.shape[0] != dsamp:
-                    dly = np.zeros(dsamp, dtype=np.float32)
-                ext = np.concatenate([dly, mix])
-                mix = ext[:frames].astype(np.float32)
-                state["dly"] = ext[frames:]
-            if out is self._spec_src:
-                self._update_spectrum(mix)
-            out.peak = float(np.max(np.abs(mix))) if mix.size else 0.0
-            outdata[:] = np.repeat(mix.reshape(-1, 1), outdata.shape[1], axis=1)
+                mix = self._chain(out, state, mix, frames, "m")
+                if out is self._spec_src:
+                    self._update_spectrum(mix)
+                out.peak = float(np.max(np.abs(mix))) if mix.size else 0.0
+                outdata[:] = np.repeat(mix.reshape(-1, 1), nch, axis=1)
 
         return cb
 
@@ -545,14 +781,319 @@ class Engine:
 
 # ───────────────────────── GUI ─────────────────────────
 
-BG = "#15181d"; PANEL = "#1b1f26"; FG = "#e0e0e0"; SUB = "#8b94a0"
-BD = "#2a2f37"; ACC = "#2dd36f"; ACC2 = "#0077b6"; RED = "#e63946"
+# ── премиальная тема Studio (графит + неон) ──
+BG = "#0e1115"     # глубокий графит (фон)
+PANEL = "#171b21"  # карточка/панель (светлее фона → объём)
+CARD = "#1d232b"   # приподнятый элемент (кнопки/инпуты)
+FG = "#e9eef3"     # основной текст
+SUB = "#79838f"    # вторичный текст
+BD = "#2b323c"     # тонкая линия / трек слайдера
+ACC = "#2dd36f"    # неон-зелёный (основной акцент)
+ACC2 = "#19c3d6"   # неон-циан (второй акцент)
+RED = "#ff5d6c"
 FONT = ("Segoe UI", 10)
 FONT_B = ("Segoe UI", 11, "bold")
+FONT_H = ("Segoe UI Semibold", 12)
+FONT_MONO = ("Consolas", 10)
 
-APP_VERSION = "1.1"
+APP_VERSION = "1.4"
 BRAND = "Errarium™"
 DEVELOPER = "Errarium"
+
+
+_VIZ_VS = """#version 330
+in vec2 p;
+void main(){ gl_Position = vec4(p, 0.0, 1.0); }
+"""
+
+# ── feedback shader (техника MilkDrop/Geiss/AVS) ──
+# Каждый кадр = предыдущий, искажённый (зум+поворот+свирл) и затухающий,
+# плюс новая осциллограмма, спектр-всплески и вспышка на бите.
+_FB_FS = """#version 330
+uniform vec2 res;
+uniform float time, level, bass, treble, cen, beat;
+uniform int preset;
+uniform int color_mode;
+uniform float mono_hue, saturation, decay, speed, warp, swirl,
+              gain, linew, react, bursts;
+uniform sampler2D prev;     // предыдущий кадр
+uniform sampler2D bands;    // спектр (64)
+uniform sampler2D wave;     // осциллограмма (512), 0..1
+out vec4 fragColor;
+
+vec3 hsv(float h,float s,float v){ vec3 k=vec3(1.0,2.0/3.0,1.0/3.0);
+  vec3 q=abs(fract(vec3(h)+k)*6.0-3.0); return v*mix(vec3(1.0),clamp(q-1.0,0.0,1.0),s); }
+float spec(float x){ return texture(bands, vec2(clamp(x,0.0,1.0),0.5)).r; }
+float wav(float x){ return texture(wave, vec2(clamp(x,0.0,1.0),0.5)).r*2.0-1.0; }
+
+vec3 tint(float inten, float ang, float t){
+  if(color_mode==1) return vec3(inten);                              // Ч/Б
+  if(color_mode==2) return hsv(mono_hue, saturation, 1.0)*inten;     // Монотон
+  return hsv(fract(t*0.05*speed + ang/6.2831 + 0.2*cen), saturation, 1.0)*inten;
+}
+
+void main(){
+  float asp = res.x/res.y;
+  vec2 uv = gl_FragCoord.xy/res;
+  vec2 c  = uv-0.5; c.x*=asp;
+  float r = length(c);
+  float ang = atan(c.y,c.x);
+  float t = time;
+
+  // ── ВАРП предыдущего кадра ──
+  float zoom, rot, sw;
+  if(preset==0){ zoom = 1.0 - (0.018 + 0.05*bass)*warp; rot = (0.010 + 0.05*treble + 0.04*beat)*speed; sw=0.0; }
+  else if(preset==1){ zoom = 1.0 + (0.020 + 0.05*bass)*warp; rot = -(0.008 + 0.03*treble)*speed; sw=0.0; }
+  else { zoom = 1.0 - 0.010*warp; rot = 0.006*speed; sw = (0.05 + 0.25*bass)*swirl; }
+  float a2 = rot + sw*(0.5 - r);
+  float ca=cos(a2), sa=sin(a2);
+  vec2 cc = mat2(ca,-sa,sa,ca)*c*zoom;
+  cc += 0.004*warp*vec2(sin(t*0.7*speed+cc.y*6.0), cos(t*0.6*speed+cc.x*6.0));
+  vec2 w = cc; w.x/=asp; w += 0.5;
+  vec3 col = texture(prev, w).rgb * clamp(decay + 0.02*beat, 0.0, 0.999);
+
+  // ── НОВЫЕ ЭЛЕМЕНТЫ ──
+  float circR = 0.16 + (0.10*level + 0.06*beat)*react;
+  float wv = wav(fract(ang/6.2831 + 0.5));
+  float ring = circR + 0.07*wv*react;
+  float lw = 0.010*linew;
+  float scope = smoothstep(lw, 0.0, abs(r - ring)) * (0.5 + 0.8*level*react);
+
+  float m = spec(fract(ang/6.2831));
+  float ray = smoothstep(0.015*linew, 0.0, abs(r - (circR + 0.05 + 0.55*m*react))) * m * 1.4 * bursts;
+
+  vec3 add = tint(scope + ray, ang, t) * gain;
+  // вспышка ядра на бите
+  float bf = beat * smoothstep(0.22, 0.0, r) * 1.4 * bursts;
+  add += tint(bf, ang, t*2.0);
+
+  col += add;
+  col = max(col, 0.0);
+  fragColor = vec4(col, 1.0);
+}
+"""
+
+# ── present shader: тон-маппинг + лёгкий блум + виньетка ──
+_PRESENT_FS = """#version 330
+uniform vec2 res;
+uniform float bloom;
+uniform sampler2D scene;
+out vec4 fragColor;
+void main(){
+  vec2 uv = gl_FragCoord.xy/res;
+  vec3 c = texture(scene, uv).rgb;
+  // дешёвый блум: усреднение по кресту
+  vec2 px = 1.5/res;
+  vec3 bl = texture(scene, uv+vec2(px.x,0)).rgb + texture(scene, uv-vec2(px.x,0)).rgb
+          + texture(scene, uv+vec2(0,px.y)).rgb + texture(scene, uv-vec2(0,px.y)).rgb;
+  c += bloom*bl;
+  c = c/(c+vec3(0.85));            // тон-маппинг (Reinhard)
+  c = pow(c, vec3(0.85));          // гамма
+  float vig = smoothstep(1.25, 0.35, length(uv-0.5));
+  c *= mix(0.55, 1.0, vig);        // виньетка
+  fragColor = vec4(c, 1.0);
+}
+"""
+
+
+class GPUVisualizer:
+    """Полноэкранная цветомузыка на GPU (OpenGL/GLSL) — плотные поля, 4K.
+    Своё окно glfw в отдельном потоке, питается аналитикой движка."""
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.thread = None
+        self._stop = False
+        self._win = None
+        self._preset = 0
+        self._fs = False
+        self._wx = self._wy = 60
+        self._ww, self._wh = 1366, 768
+
+    @staticmethod
+    def available():
+        return HAVE_GPU
+
+    def start(self):
+        if self.thread is not None and self.thread.is_alive():
+            return
+        self._stop = False
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self._stop = True
+
+    def _toggle_fs(self, glfw, win, mon_index, force=False):
+        if self._fs and not force:
+            glfw.set_window_monitor(win, None, self._wx, self._wy, self._ww, self._wh, 0)
+            self._fs = False
+            return
+        if not self._fs:
+            try:
+                self._wx, self._wy = glfw.get_window_pos(win)
+                self._ww, self._wh = glfw.get_window_size(win)
+            except Exception:
+                pass
+        mons = glfw.get_monitors()
+        if not mons:
+            return
+        m = mons[mon_index] if mon_index < len(mons) else mons[0]
+        vm = glfw.get_video_mode(m)
+        glfw.set_window_monitor(win, m, 0, 0, vm.size.width, vm.size.height, vm.refresh_rate)
+        self._fs = True
+
+    def _run(self):
+        glfw = _glfw; mgl = _mgl
+        if not glfw.init():
+            return
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+        win = glfw.create_window(self._ww, self._wh, "Errarium — Цветомузыка (GPU)", None, None)
+        if not win:
+            glfw.terminate(); return
+        self._win = win
+        glfw.make_context_current(win)
+        glfw.swap_interval(1)
+        try:
+            ctx = mgl.create_context()
+            fb_prog = ctx.program(vertex_shader=_VIZ_VS, fragment_shader=_FB_FS)
+            pr_prog = ctx.program(vertex_shader=_VIZ_VS, fragment_shader=_PRESENT_FS)
+        except Exception:
+            try: glfw.destroy_window(win)
+            except Exception: pass
+            glfw.terminate(); self._win = None; return
+        quad = ctx.buffer(np.array([-1, -1, 3, -1, -1, 3], dtype="f4").tobytes())
+        fb_vao = ctx.simple_vertex_array(fb_prog, quad, "p")
+        pr_vao = ctx.simple_vertex_array(pr_prog, quad, "p")
+
+        # внутреннее разрешение feedback-буфера (апскейл до 4K в present — бесплатный на GPU)
+        IW, IH = 1600, 900
+        def make_fbo():
+            t = ctx.texture((IW, IH), 3, dtype="f2")
+            t.filter = (mgl.LINEAR, mgl.LINEAR)
+            t.repeat_x = False; t.repeat_y = False
+            return ctx.framebuffer(color_attachments=[t]), t
+        fboA, texA = make_fbo()
+        fboB, texB = make_fbo()
+        fboA.use(); ctx.clear(0, 0, 0, 1)
+        fboB.use(); ctx.clear(0, 0, 0, 1)
+
+        N = self.engine.VIZ_N
+        bands_tex = ctx.texture((N, 1), 1, dtype="f4")
+        bands_tex.filter = (mgl.LINEAR, mgl.LINEAR)
+        bands_tex.repeat_x = False; bands_tex.repeat_y = False
+        WN = self.engine.VIZ_W
+        wave_tex = ctx.texture((WN, 1), 1, dtype="f4")
+        wave_tex.filter = (mgl.LINEAR, mgl.LINEAR)
+        wave_tex.repeat_x = False; wave_tex.repeat_y = False
+
+        for nm, slot in (("prev", 0), ("bands", 1), ("wave", 2)):
+            try: fb_prog[nm].value = slot
+            except Exception: pass
+        try: pr_prog["scene"].value = 0
+        except Exception: pass
+
+        start = time.perf_counter()
+        norm = 0.05; lvln = 0.05; bassn = 0.02; beatenv = 0.0
+        disp = np.zeros(N, dtype="f4")
+        prev = {}
+        cur, nxt = (fboA, texA), (fboB, texB)
+
+        def edge(k):
+            cur_ = glfw.get_key(win, k) == glfw.PRESS
+            was = prev.get(k, False); prev[k] = cur_
+            return cur_ and not was
+
+        def setu(p, name, val):
+            try: p[name].value = val
+            except Exception: pass
+
+        while not glfw.window_should_close(win) and not self._stop:
+            e = self.engine
+            running = e.running
+            raw = np.asarray(e.viz_bands, dtype="f4")
+            if not running:
+                raw = raw * 0.92
+            pk = float(raw.max()) if raw.size else 0.0
+            norm = max(pk, norm * 0.99, 0.02)
+            tgt = np.clip(raw / norm, 0.0, 1.0)
+            disp = np.where(tgt > disp, disp * 0.40 + tgt * 0.60,
+                            disp * 0.82 + tgt * 0.18).astype("f4")
+            lvln = max(e.viz_level, lvln * 0.992, 0.02)
+            level = min(1.0, (e.viz_level / lvln)) * (0.4 if not running else 1.0)
+            bassn = max(e.viz_bass, bassn * 0.99, 0.004)
+            bassv = min(1.0, e.viz_bass / bassn) * (0.0 if not running else 1.0)
+            bn = e.viz_beat; e.viz_beat = 0.0
+            beatenv = max(beatenv * 0.85, bn if running else 0.0)
+            treble = min(1.0, e.viz_treble * 40.0)
+            wave = np.asarray(e.viz_wave, dtype="f4")
+            if not running:
+                wave = (wave - 0.5) * 0.92 + 0.5
+
+            bands_tex.write(disp.tobytes())
+            wave_tex.write(np.ascontiguousarray(wave).tobytes())
+
+            # 1) feedback pass: nxt = warp(cur) + new elements
+            (cur_fbo, cur_tex) = cur
+            (nxt_fbo, nxt_tex) = nxt
+            cur_tex.use(0); bands_tex.use(1); wave_tex.use(2)
+            nxt_fbo.use()
+            ctx.viewport = (0, 0, IW, IH)
+            setu(fb_prog, "res", (float(IW), float(IH)))
+            setu(fb_prog, "time", time.perf_counter() - start)
+            setu(fb_prog, "level", float(level))
+            setu(fb_prog, "bass", float(bassv))
+            setu(fb_prog, "treble", float(treble))
+            setu(fb_prog, "cen", float(e.viz_centroid))
+            setu(fb_prog, "beat", float(beatenv))
+            setu(fb_prog, "preset", int(self._preset))
+            cfg = e.viz_cfg
+            setu(fb_prog, "color_mode", int(cfg.get("color_mode", 0)))
+            setu(fb_prog, "mono_hue", float(cfg.get("mono_hue", 0.55)))
+            setu(fb_prog, "saturation", float(cfg.get("saturation", 1.0)))
+            setu(fb_prog, "decay", float(cfg.get("decay", 0.955)))
+            setu(fb_prog, "speed", float(cfg.get("speed", 1.0)))
+            setu(fb_prog, "warp", float(cfg.get("warp", 1.0)))
+            setu(fb_prog, "swirl", float(cfg.get("swirl", 1.0)))
+            setu(fb_prog, "gain", float(cfg.get("gain", 1.0)))
+            setu(fb_prog, "linew", float(cfg.get("linew", 1.0)))
+            setu(fb_prog, "react", float(cfg.get("react", 1.0)))
+            setu(fb_prog, "bursts", float(cfg.get("bursts", 1.0)))
+            fb_vao.render(mgl.TRIANGLES)
+
+            # 2) present pass: nxt → экран (апскейл до окна/4K + блум + тон-маппинг)
+            ctx.screen.use()
+            w, h = glfw.get_framebuffer_size(win)
+            ctx.viewport = (0, 0, w, h)
+            nxt_tex.use(0)
+            setu(pr_prog, "res", (float(w), float(h)))
+            setu(pr_prog, "bloom", float(cfg.get("bloom", 0.12)))
+            pr_vao.render(mgl.TRIANGLES)
+
+            glfw.swap_buffers(win)
+            glfw.poll_events()
+            cur, nxt = nxt, cur   # ping-pong
+
+            if edge(glfw.KEY_ESCAPE):
+                break
+            if edge(glfw.KEY_SPACE):
+                self._preset = (self._preset + 1) % 3
+            if edge(glfw.KEY_F11) or edge(glfw.KEY_F):
+                self._toggle_fs(glfw, win, 0)
+            if edge(glfw.KEY_1):
+                self._toggle_fs(glfw, win, 0, force=True)
+            if edge(glfw.KEY_2):
+                self._toggle_fs(glfw, win, 1, force=True)
+            if edge(glfw.KEY_3):
+                self._toggle_fs(glfw, win, 2, force=True)
+
+        try: glfw.destroy_window(win)
+        except Exception: pass
+        try: glfw.terminate()
+        except Exception: pass
+        self._win = None
 
 
 class App:
@@ -563,6 +1104,11 @@ class App:
         self.src_rows = []         # list of widget dicts
         self.outputs = []          # list[OutputSpk]
         self.out_rows = []         # list of output widget dicts
+        self.fx_win = None         # «Спецэффекты» Toplevel
+        self.viz_win = None        # «Цветомузыка» Toplevel (CPU-фолбэк)
+        self._viz_job = None
+        self._gpu_viz = None       # GPU-визуализатор (OpenGL)
+        self.viz_cfg_win = None     # окно настроек стиля цветомузыки
         self._calibrating = False
         self.out_devs = devices(True)
         self.in_devs = devices(False)
@@ -591,24 +1137,39 @@ class App:
             s.theme_use("clam")
         except Exception:
             pass
-        s.configure(".", background=BG, foreground=FG, fieldbackground=PANEL, font=FONT)
+        s.configure(".", background=BG, foreground=FG, fieldbackground=CARD, font=FONT)
         s.configure("TFrame", background=BG)
         s.configure("Panel.TFrame", background=PANEL)
+        s.configure("Card.TFrame", background=CARD)
         s.configure("TLabel", background=BG, foreground=FG)
-        s.configure("Sub.TLabel", background=PANEL, foreground=SUB)
-        s.configure("Head.TLabel", background=BG, foreground=ACC, font=FONT_B)
-        s.configure("TButton", background=PANEL, foreground=FG, borderwidth=1, focuscolor=BG)
-        s.map("TButton", background=[("active", BD)])
-        s.configure("TCheckbutton", background=PANEL, foreground=FG)
-        s.map("TCheckbutton", background=[("active", PANEL)])
-        s.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=FG, arrowcolor=FG, padding=4)
+        s.configure("Sub.TLabel", background=PANEL, foreground=SUB, font=("Segoe UI", 9))
+        s.configure("Head.TLabel", background=BG, foreground=FG, font=FONT_H)
+        s.configure("Accent.TLabel", background=BG, foreground=ACC, font=FONT_H)
+        s.configure("TButton", background=CARD, foreground=FG, borderwidth=0,
+                    focuscolor=BG, padding=(12, 6))
+        s.map("TButton",
+              background=[("active", BD), ("pressed", BD)],
+              foreground=[("active", "#ffffff")])
+        # акцентная кнопка (основные действия)
+        s.configure("Accent.TButton", background=ACC, foreground="#06210f",
+                    borderwidth=0, focuscolor=BG, padding=(14, 6), font=FONT_B)
+        s.map("Accent.TButton", background=[("active", "#37e07d"), ("pressed", "#26b85f")])
+        s.configure("TCheckbutton", background=PANEL, foreground=FG, focuscolor=BG)
+        s.map("TCheckbutton", background=[("active", PANEL)],
+              foreground=[("active", ACC)], indicatorcolor=[("selected", ACC)])
+        s.configure("TCombobox", fieldbackground=CARD, background=CARD, foreground=FG,
+                    arrowcolor=ACC, bordercolor=BD, lightcolor=CARD, darkcolor=CARD, padding=5)
         s.map("TCombobox",
-              fieldbackground=[("readonly", PANEL), ("disabled", PANEL)],
+              fieldbackground=[("readonly", CARD), ("disabled", PANEL)],
               foreground=[("readonly", FG), ("disabled", SUB)],
-              selectbackground=[("readonly", PANEL)],
+              bordercolor=[("focus", ACC), ("active", ACC2)],
+              arrowcolor=[("active", ACC2)],
+              selectbackground=[("readonly", CARD)],
               selectforeground=[("readonly", FG)])
-        s.configure("Horizontal.TScale", background=PANEL, troughcolor=BD)
-        s.configure("Vertical.TScale", background=PANEL, troughcolor=BD)
+        s.configure("Horizontal.TScale", background=PANEL, troughcolor=BD,
+                    bordercolor=PANEL, lightcolor=ACC, darkcolor=ACC)
+        s.configure("Vertical.TScale", background=PANEL, troughcolor=BD,
+                    bordercolor=PANEL, lightcolor=ACC2, darkcolor=ACC2)
         self.root.option_add("*TCombobox*Listbox.background", PANEL)
         self.root.option_add("*TCombobox*Listbox.foreground", FG)
         self.root.option_add("*TCombobox*Listbox.selectBackground", ACC2)
@@ -626,8 +1187,10 @@ class App:
         head = ttk.Frame(self.root)
         head.pack(fill="x", **pad)
         ttk.Label(head, text="CHANNEL SPLITTER", style="Head.TLabel").pack(side="left")
-        ttk.Label(head, text=f"by {BRAND}", foreground=ACC, background=BG, font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
-        ttk.Label(head, text="L/R → две колонки · мультиисточник · баланс · EQ", foreground=SUB, background=BG).pack(side="left", padx=6)
+        ttk.Label(head, text=f"by {BRAND}", foreground=ACC, background=BG,
+                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
+        ttk.Label(head, text="L/R · стерео-наушники · мультиисточник · EQ · спецэффекты",
+                  foreground=SUB, background=BG, font=("Segoe UI", 9)).pack(side="left", padx=6)
 
         # ── Outputs (party rack): dynamic list of speakers / subwoofers ──
         outhead = ttk.Frame(self.root)
@@ -681,6 +1244,18 @@ class App:
                                    font=FONT_B, padx=20, pady=3, cursor="hand2")
         self.start_btn.pack(side="left")
         ttk.Button(tr, text="⟳ Устройства", command=self.refresh_devices).pack(side="left", padx=8)
+        self.fx_btn = tk.Button(tr, text="✨ Спецэффекты", command=self.open_fx_window,
+                                bg=PANEL, fg=ACC2, activebackground=BD, activeforeground=FG,
+                                relief="flat", bd=1, font=FONT_B, padx=14, pady=3, cursor="hand2")
+        self.fx_btn.pack(side="left", padx=4)
+        self.viz_btn = tk.Button(tr, text="🌈 Цветомузыка", command=self.open_visualizer,
+                                 bg=PANEL, fg="#f78c6b", activebackground=BD, activeforeground=FG,
+                                 relief="flat", bd=1, font=FONT_B, padx=14, pady=3, cursor="hand2")
+        self.viz_btn.pack(side="left", padx=(4, 0))
+        self.viz_cfg_btn = tk.Button(tr, text="🎛", command=self.open_viz_settings,
+                                     bg=PANEL, fg="#f78c6b", activebackground=BD, activeforeground=FG,
+                                     relief="flat", bd=1, font=FONT_B, padx=8, pady=3, cursor="hand2")
+        self.viz_cfg_btn.pack(side="left", padx=(0, 4))
         ttk.Label(tr, text="МАСТЕР", foreground=SUB, background=BG).pack(side="left", padx=(16, 4))
         self.master_var = tk.DoubleVar(value=100)
         ttk.Scale(tr, from_=0, to=150, variable=self.master_var, orient="horizontal", length=140,
@@ -699,10 +1274,15 @@ class App:
                   background=BG, foreground=SUB, font=("Segoe UI", 8)).pack(pady=(2, 4))
 
     ROLE_BAL = {"Левый": -1.0, "Моно": 0.0, "Правый": 1.0}
+    ROLES = ["Левый", "Моно", "Правый", "Стерео"]
+
+    def _set_role(self, spk, role):
+        spk.stereo = (role == "Стерео")
+        spk.bal = self.ROLE_BAL.get(role, 0.0)
 
     def add_output_row(self, default_sub=None, role="Левый"):
         spk = OutputSpk(0, "")
-        spk.bal = self.ROLE_BAL.get(role, -1.0)
+        self._set_role(spk, role)
         self.outputs.append(spk)
         row = ttk.Frame(self.out_container, style="Panel.TFrame")
         row.pack(fill="x", padx=8, pady=3)
@@ -716,9 +1296,9 @@ class App:
         cb.bind("<<ComboboxSelected>>", lambda e: self._reapply())
 
         rolev = tk.StringVar(value=role)
-        rcb = ttk.Combobox(row, values=list(self.ROLE_BAL.keys()), state="readonly", width=7, font=FONT, textvariable=rolev)
+        rcb = ttk.Combobox(row, values=self.ROLES, state="readonly", width=8, font=FONT, textvariable=rolev)
         rcb.pack(side="left", padx=2)
-        rcb.bind("<<ComboboxSelected>>", lambda e, s=spk, var=rolev: setattr(s, "bal", self.ROLE_BAL[var.get()]))
+        rcb.bind("<<ComboboxSelected>>", lambda e, s=spk, var=rolev: self._set_role(s, var.get()))
 
         vol = tk.DoubleVar(value=100)
         ttk.Scale(row, from_=0, to=150, variable=vol, orient="horizontal", length=90,
@@ -963,7 +1543,17 @@ class App:
 
     # ── EQ presets ──
     def _eq_preset_path(self):
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "eq_presets.json")
+        path = os.path.join(user_data_dir(), "eq_presets.json")
+        # одноразовая миграция из старого расположения (рядом со скриптом)
+        if not os.path.exists(path):
+            try:
+                old = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eq_presets.json")
+                if os.path.exists(old) and os.path.abspath(old) != os.path.abspath(path):
+                    with open(old, "r", encoding="utf-8") as fi, open(path, "w", encoding="utf-8") as fo:
+                        fo.write(fi.read())
+            except Exception:
+                pass
+        return path
 
     def _load_eq_presets(self):
         try:
@@ -1004,10 +1594,17 @@ class App:
         e = self.engine
         d[name] = {
             "gains": list(e.eq_gains),
+            "eq_on": e.eq_on,
             "bass_on": e.bass_on, "bass": e.bass,
             "spatial_on": e.spatial_on, "spatial": e.spatial,
             "threeD_on": e.threeD_on, "threeD": e.threeD,
             "surround_on": e.surround_on, "surround": e.surround,
+            # ── спецэффекты ──
+            "monobass_on": e.monobass_on, "monobass_hz": e.monobass_hz,
+            "pos_on": e.pos_on, "pan": e.pan, "distance": e.distance,
+            "tone_on": e.tone_on, "tilt": e.tilt, "drive": e.drive,
+            "reverb_on": e.reverb_on, "reverb_size": e.reverb_size, "reverb_mix": e.reverb_mix,
+            "comp_on": e.comp_on, "comp_thresh": e.comp_thresh,
         }
         self._save_eq_presets(d)
 
@@ -1041,7 +1638,32 @@ class App:
         sr = float(p.get("surround", 0.0)); e.surround = sr
         self.surround_var.set(sr * 100); self.surround_lbl.config(text=f"{int(round(sr * 100))}%")
         e.surround_on = bool(p.get("surround_on", False)); self.surround_onv.set(e.surround_on)
+        # ── спецэффекты ──
+        e.monobass_on = bool(p.get("monobass_on", False))
+        e.monobass_hz = float(p.get("monobass_hz", 120.0)); e.build_monobass()
+        e.pos_on = bool(p.get("pos_on", False))
+        e.pan = float(p.get("pan", 0.0)); e.set_distance(float(p.get("distance", 0.0)))
+        e.tone_on = bool(p.get("tone_on", False))
+        e.tilt = float(p.get("tilt", 0.0)); e.drive = float(p.get("drive", 0.0))
+        e.reverb_on = bool(p.get("reverb_on", False))
+        e.reverb_size = float(p.get("reverb_size", 0.5)); e.reverb_mix = float(p.get("reverb_mix", 0.22))
+        e.comp_on = bool(p.get("comp_on", False)); e.comp_thresh = float(p.get("comp_thresh", -18.0))
+        if "eq_on" in p:
+            e.eq_on = bool(p["eq_on"])
+            if e.eq_on:
+                self.eq_btn.config(text="EQ ВКЛ", bg=ACC, fg="#06210f")
+            else:
+                self.eq_btn.config(text="EQ ВЫКЛ", bg=PANEL, fg=SUB)
         self.engine.build_eq()
+        # если окно спецэффектов открыто — пересоберём, чтобы отразить пресет
+        if self.fx_win is not None:
+            try:
+                if self.fx_win.winfo_exists():
+                    self.fx_win.destroy()
+                    self.fx_win = None
+                    self.open_fx_window()
+            except Exception:
+                pass
 
     def _toggle_eq(self):
         self.engine.eq_on = not self.engine.eq_on
@@ -1056,6 +1678,468 @@ class App:
             self.engine.eq_gains[i] = 0.0
             self.eq_lbls[i].config(text="0")
         self.engine.build_eq()
+
+    # ── Спецэффекты (отдельное полноразмерное окно) ──
+    def _make_xy_pad(self, parent, title, xlabel, ylabel, color, on_cmd, move_cmd,
+                     init=(0.5, 0.5), on_init=False):
+        SIZE = 230
+        r = 9
+        col = ttk.Frame(parent, style="Panel.TFrame")
+        col.pack(side="left", expand=True, fill="both", padx=10, pady=6)
+        top = ttk.Frame(col, style="Panel.TFrame"); top.pack(fill="x")
+        ttk.Label(top, text=title, background=PANEL, foreground=color, font=FONT_B).pack(side="left", padx=4)
+        onv = tk.BooleanVar(value=on_init)
+        ttk.Checkbutton(top, text="вкл", variable=onv,
+                        command=lambda: on_cmd(onv.get())).pack(side="left", padx=6)
+        cv = tk.Canvas(col, width=SIZE, height=SIZE, bg=BD, highlightthickness=1, highlightbackground=PANEL)
+        cv.pack(padx=4, pady=4)
+        cv.create_line(SIZE / 2, 0, SIZE / 2, SIZE, fill="#3a3f47")
+        cv.create_line(0, SIZE / 2, SIZE, SIZE / 2, fill="#3a3f47")
+        px = init[0] * SIZE; py = (1 - init[1]) * SIZE
+        dot = cv.create_oval(px - r, py - r, px + r, py + r, fill=color, outline="#ffffff", width=2)
+        ttk.Label(col, text=f"X: {xlabel}", style="Sub.TLabel").pack()
+        ttk.Label(col, text=f"Y: {ylabel}", style="Sub.TLabel").pack()
+
+        def set_pos(ev=None, xn=None, yn=None):
+            if ev is not None:
+                xn = min(max(ev.x, 0), SIZE) / SIZE
+                yn = 1 - min(max(ev.y, 0), SIZE) / SIZE
+            x = xn * SIZE; y = (1 - yn) * SIZE
+            cv.coords(dot, x - r, y - r, x + r, y + r)
+            move_cmd(xn, yn)
+
+        cv.bind("<Button-1>", set_pos)
+        cv.bind("<B1-Motion>", set_pos)
+        move_cmd(init[0], init[1])   # выставить нейтральные значения (эффект пока выкл)
+
+    def open_fx_window(self):
+        if self.fx_win is not None:
+            try:
+                if self.fx_win.winfo_exists():
+                    self.fx_win.deiconify(); self.fx_win.lift(); self.fx_win.focus_force()
+                    return
+            except Exception:
+                pass
+        win = tk.Toplevel(self.root)
+        self.fx_win = win
+        win.title(f"Спецэффекты — {BRAND}")
+        win.configure(bg=BG)
+        try:
+            self.root.update_idletasks()
+            w = max(self.root.winfo_width(), 920)
+            h = max(self.root.winfo_height(), 720)
+            win.geometry(f"{w}x{h}")
+        except Exception:
+            win.geometry("960x720")
+        win.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "fx_win", None), win.destroy()))
+
+        head = ttk.Frame(win)
+        head.pack(fill="x", padx=12, pady=(10, 4))
+        ttk.Label(head, text="СПЕЦЭФФЕКТЫ", style="Head.TLabel").pack(side="left")
+        ttk.Label(head, text="2D-площадки и премиальная обработка · по умолчанию всё выключено",
+                  foreground=SUB, background=BG).pack(side="left", padx=10)
+
+        # ── 2D pads ──
+        pads = ttk.Frame(win, style="Panel.TFrame")
+        pads.pack(fill="x", padx=12, pady=6)
+        e = self.engine
+        cl = lambda x: max(0.0, min(1.0, x))
+        self._make_xy_pad(
+            pads, "SPACE", "Ширина стерео", "Глубина (3D)", ACC2,
+            on_cmd=lambda v: (setattr(e, "spatial_on", v), setattr(e, "threeD_on", v),
+                              setattr(e, "surround_on", v)),
+            move_cmd=lambda xn, yn: (setattr(e, "spatial", xn * 2.0),
+                                     setattr(e, "threeD", yn),
+                                     setattr(e, "surround", yn * 0.6)),
+            init=(cl(e.spatial / 2.0), cl(e.threeD)), on_init=e.spatial_on)
+        self._make_xy_pad(
+            pads, "POSITION", "Пан Л ↔ П", "Дальше ↕ Ближе", ACC,
+            on_cmd=lambda v: setattr(e, "pos_on", v),
+            move_cmd=lambda xn, yn: (setattr(e, "pan", (xn - 0.5) * 2.0),
+                                     e.set_distance(1.0 - yn)),
+            init=(cl(e.pan / 2.0 + 0.5), cl(1.0 - e.distance)), on_init=e.pos_on)
+        self._make_xy_pad(
+            pads, "TONE", "Тепло ↔ Ярко", "Сатурация", "#f78c6b",
+            on_cmd=lambda v: setattr(e, "tone_on", v),
+            move_cmd=lambda xn, yn: (setattr(e, "tilt", (xn - 0.5) * 2.0),
+                                     setattr(e, "drive", yn), e.build_eq()),
+            init=(cl(e.tilt / 2.0 + 0.5), cl(e.drive)), on_init=e.tone_on)
+
+        # ── effect strips ──
+        def strip(title, color, on_init=False):
+            fr = ttk.Frame(win, style="Panel.TFrame")
+            fr.pack(fill="x", padx=12, pady=4)
+            top = ttk.Frame(fr, style="Panel.TFrame"); top.pack(fill="x", pady=(4, 0))
+            ttk.Label(top, text=title, background=PANEL, foreground=color, font=FONT_B).pack(side="left", padx=8)
+            onv = tk.BooleanVar(value=on_init)
+            return fr, top, onv
+
+        cfr, ctop, comp_on = strip("КОМПРЕССОР / ЛИМИТЕР", ACC, e.comp_on)
+        ttk.Checkbutton(ctop, text="вкл", variable=comp_on,
+                        command=lambda: setattr(e, "comp_on", comp_on.get())).pack(side="left", padx=6)
+        clbl = ttk.Label(ctop, text=f"{int(e.comp_thresh)} dB", background=PANEL, foreground=SUB)
+        clbl.pack(side="right", padx=10)
+        cvar = tk.DoubleVar(value=e.comp_thresh)
+        ttk.Scale(cfr, from_=-40, to=0, variable=cvar, orient="horizontal",
+                  command=lambda v: (setattr(e, "comp_thresh", float(v)),
+                                     clbl.config(text=f"{int(float(v))} dB"))).pack(fill="x", padx=10, pady=(0, 4))
+
+        mfr, mtop, mb_on = strip("МОНО-БАС", ACC2, e.monobass_on)
+        ttk.Checkbutton(mtop, text="вкл", variable=mb_on,
+                        command=lambda: setattr(e, "monobass_on", mb_on.get())).pack(side="left", padx=6)
+        mlbl = ttk.Label(mtop, text=f"{int(e.monobass_hz)} Гц", background=PANEL, foreground=SUB)
+        mlbl.pack(side="right", padx=10)
+        mvar = tk.DoubleVar(value=e.monobass_hz)
+        ttk.Scale(mfr, from_=60, to=250, variable=mvar, orient="horizontal",
+                  command=lambda v: (setattr(e, "monobass_hz", float(v)), e.build_monobass(),
+                                     mlbl.config(text=f"{int(float(v))} Гц"))).pack(fill="x", padx=10, pady=(0, 4))
+
+        rfr, rtop, rv_on = strip("РЕВЕРБ", "#f78c6b", e.reverb_on)
+        ttk.Checkbutton(rtop, text="вкл", variable=rv_on,
+                        command=lambda: setattr(e, "reverb_on", rv_on.get())).pack(side="left", padx=6)
+        r1 = ttk.Frame(rfr, style="Panel.TFrame"); r1.pack(fill="x", padx=10)
+        ttk.Label(r1, text="Размер", style="Sub.TLabel", width=8, anchor="w").pack(side="left")
+        szvar = tk.DoubleVar(value=e.reverb_size * 100.0)
+        ttk.Scale(r1, from_=0, to=100, variable=szvar, orient="horizontal",
+                  command=lambda v: setattr(e, "reverb_size", float(v) / 100.0)).pack(side="left", fill="x", expand=True)
+        r2 = ttk.Frame(rfr, style="Panel.TFrame"); r2.pack(fill="x", padx=10, pady=(0, 4))
+        ttk.Label(r2, text="Микс", style="Sub.TLabel", width=8, anchor="w").pack(side="left")
+        mxvar = tk.DoubleVar(value=e.reverb_mix * 100.0)
+        ttk.Scale(r2, from_=0, to=80, variable=mxvar, orient="horizontal",
+                  command=lambda v: setattr(e, "reverb_mix", float(v) / 100.0)).pack(side="left", fill="x", expand=True)
+
+        # ── phase invert per speaker ──
+        pfr = ttk.Frame(win, style="Panel.TFrame")
+        pfr.pack(fill="x", padx=12, pady=6)
+        ttk.Label(pfr, text="ФАЗА КОЛОНОК — инверсия (фикс противофазы / пропадающего баса)",
+                  style="Head.TLabel").pack(anchor="w", padx=8, pady=(6, 2))
+        prow = ttk.Frame(pfr, style="Panel.TFrame"); prow.pack(fill="x", padx=8, pady=(0, 8))
+        rows = getattr(self, "out_rows", [])
+        if rows:
+            for r in rows:
+                spk = r["spk"]
+                nm = (r["cb"].get() or spk.name or f"Выход {spk.id}")
+                nm = nm.split(" · ")[0][:22]
+                pv = tk.BooleanVar(value=spk.inv)
+                ttk.Checkbutton(prow, text=nm, variable=pv,
+                                command=lambda s=spk, v=pv: setattr(s, "inv", v.get())).pack(side="left", padx=10)
+        else:
+            ttk.Label(prow, text="нет колонок", style="Sub.TLabel").pack(side="left")
+
+        ttk.Label(win,
+                  text="💡 Эффекты применяются к любому звуку, идущему через сплиттер. "
+                       "Для системного звука добавь источник «+ Системный звук».",
+                  background=BG, foreground=SUB, font=("Segoe UI", 9)).pack(padx=12, pady=(2, 8), anchor="w")
+
+    # ── Цветомузыка: настройки стиля ──
+    def open_viz_settings(self):
+        if self.viz_cfg_win is not None:
+            try:
+                if self.viz_cfg_win.winfo_exists():
+                    self.viz_cfg_win.deiconify(); self.viz_cfg_win.lift(); self.viz_cfg_win.focus_force()
+                    return
+            except Exception:
+                pass
+        win = tk.Toplevel(self.root)
+        self.viz_cfg_win = win
+        win.title(f"Цветомузыка — стиль · {BRAND}")
+        win.configure(bg=BG)
+        win.geometry("440x640")
+        win.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "viz_cfg_win", None), win.destroy()))
+        cfg = self.engine.viz_cfg
+        vbox = {}
+
+        ttk.Label(win, text="СТИЛЬ ЦВЕТОМУЗЫКИ", style="Head.TLabel").pack(anchor="w", padx=14, pady=(12, 2))
+
+        # пресеты
+        pf = ttk.Frame(win, style="Panel.TFrame"); pf.pack(fill="x", padx=12, pady=6)
+        ttk.Label(pf, text="Пресеты:", style="Sub.TLabel").pack(side="left", padx=(8, 6), pady=8)
+
+        # выбор цветового режима
+        cmf = ttk.Frame(win, style="Panel.TFrame"); cmf.pack(fill="x", padx=12, pady=6)
+        ttk.Label(cmf, text="Цвет:", style="Sub.TLabel").pack(side="left", padx=(8, 6), pady=6)
+        color_var = tk.IntVar(value=int(cfg.get("color_mode", 0)))
+        for i, nm in ((0, "Цвет"), (1, "Ч/Б"), (2, "Монотон")):
+            ttk.Radiobutton(cmf, text=nm, variable=color_var, value=i,
+                            command=lambda: cfg.__setitem__("color_mode", color_var.get())).pack(side="left", padx=6)
+
+        def slider(label, key, lo, hi):
+            fr = ttk.Frame(win, style="Panel.TFrame"); fr.pack(fill="x", padx=12, pady=2)
+            ttk.Label(fr, text=label, style="Sub.TLabel", width=18, anchor="w").pack(side="left", padx=(8, 0))
+            var = tk.DoubleVar(value=float(cfg.get(key, lo)))
+            lbl = ttk.Label(fr, text=f"{cfg.get(key, lo):.2f}", background=PANEL, foreground=FG, width=6)
+
+            def on(v, key=key, lbl=lbl):
+                cfg[key] = float(v); lbl.config(text=f"{float(v):.2f}")
+            ttk.Scale(fr, from_=lo, to=hi, variable=var, orient="horizontal",
+                      command=on).pack(side="left", fill="x", expand=True, padx=6)
+            lbl.pack(side="left", padx=(0, 8))
+            vbox[key] = (var, lbl)
+
+        slider("Оттенок (монотон)", "mono_hue", 0.0, 1.0)
+        slider("Насыщенность", "saturation", 0.0, 1.3)
+        slider("Тягучесть (шлейфы)", "decay", 0.90, 0.992)
+        slider("Скорость", "speed", 0.2, 2.5)
+        slider("Искажение", "warp", 0.0, 2.0)
+        slider("Вихрь", "swirl", 0.0, 2.0)
+        slider("Свечение (блум)", "bloom", 0.0, 0.4)
+        slider("Яркость линий", "gain", 0.3, 2.0)
+        slider("Толщина линий", "linew", 0.4, 2.0)
+        slider("Чувствительность", "react", 0.3, 2.0)
+        slider("Всплески / лучи", "bursts", 0.0, 1.0)
+
+        def apply_preset(d):
+            cfg.update(d)
+            color_var.set(int(cfg.get("color_mode", 0)))
+            for k, (var, lbl) in vbox.items():
+                if k in cfg:
+                    var.set(cfg[k]); lbl.config(text=f"{cfg[k]:.2f}")
+
+        BRIGHT = dict(color_mode=0, saturation=1.0, decay=0.955, speed=1.0, warp=1.0, swirl=1.0,
+                      bloom=0.14, gain=1.1, linew=1.0, react=1.0, bursts=1.0)
+        STRICT_MONO = dict(color_mode=2, mono_hue=0.55, saturation=0.55, decay=0.984, speed=0.5,
+                           warp=0.55, swirl=0.35, bloom=0.18, gain=0.9, linew=0.55, react=0.9, bursts=0.0)
+        STRICT_BW = dict(color_mode=1, saturation=0.0, decay=0.985, speed=0.45, warp=0.5,
+                         swirl=0.3, bloom=0.16, gain=0.85, linew=0.5, react=0.9, bursts=0.0)
+
+        for txt, preset, col in (("Яркий", BRIGHT, ACC), ("Строгий·моно", STRICT_MONO, ACC2),
+                                 ("Строгий·Ч/Б", STRICT_BW, FG)):
+            tk.Button(pf, text=txt, command=lambda p=preset: apply_preset(p),
+                      bg=CARD, fg=col, activebackground=BD, activeforeground=FG,
+                      relief="flat", bd=0, font=FONT, padx=10, pady=4, cursor="hand2").pack(side="left", padx=4, pady=6)
+
+        ttk.Label(win, text="Меняется вживую. Открой «🌈 Цветомузыка» и крути слайдеры.\n"
+                           "В окне: SPACE — режим варпа, F11 — полный экран, 1/2/3 — монитор.",
+                  background=BG, foreground=SUB, font=("Segoe UI", 9), justify="left").pack(anchor="w", padx=14, pady=10)
+
+    # ── Цветомузыка ──
+    def open_visualizer(self):
+        """GPU-окно (плотные поля, 4K) с откатом на CPU-визуализатор."""
+        if HAVE_GPU:
+            try:
+                if self._gpu_viz is None:
+                    self._gpu_viz = GPUVisualizer(self.engine)
+                self._gpu_viz.start()
+                return
+            except Exception as ex:
+                messagebox.showwarning("Цветомузыка",
+                                       f"GPU-режим недоступен ({ex}). Включаю обычный режим.")
+        self.open_viz_window()
+
+    @staticmethod
+    def _hsv_hex(h, s, v):
+        h = h % 1.0
+        s = max(0.0, min(1.0, s)); v = max(0.0, min(1.0, v))
+        r, g, b = colorsys.hsv_to_rgb(h, s, v)
+        return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
+    def open_viz_window(self):
+        if self.viz_win is not None:
+            try:
+                if self.viz_win.winfo_exists():
+                    self.viz_win.deiconify(); self.viz_win.lift(); self.viz_win.focus_force()
+                    return
+            except Exception:
+                pass
+        win = tk.Toplevel(self.root)
+        self.viz_win = win
+        win.title(f"Цветомузыка — {BRAND}")
+        win.configure(bg="#000000")
+        try:
+            self.root.update_idletasks()
+            w = max(self.root.winfo_width(), 1000)
+            win.geometry(f"{w}x{max(self.root.winfo_height(), 720)}")
+        except Exception:
+            win.geometry("1100x760")
+
+        cv = tk.Canvas(win, bg="#04050a", highlightthickness=0)
+        cv.pack(fill="both", expand=True)
+        N = self.engine.VIZ_N
+        # frequency → hue: бас красный (0.0) … верх фиолет (~0.78)
+        base_hue = [0.0 + 0.78 * (i / (N - 1)) for i in range(N)]
+        st = {
+            "cv": cv, "N": N, "base_hue": base_hue,
+            "W": 0, "H": 0, "cx": 0, "cy": 0, "R": 0,
+            "rot": 0.0, "beat": 0.0, "level": 0.0, "centroid": 0.5,
+            "norm": 0.05, "lvl_norm": 0.05, "bass_norm": 0.02,
+            "bands": np.zeros(N),
+            "bg": cv.create_rectangle(0, 0, 1, 1, fill="#04050a", outline=""),
+            "halo": cv.create_oval(0, 0, 1, 1, fill="#04050a", outline=""),
+            "poly": cv.create_polygon([0, 0, 1, 1, 2, 2], fill="#0a0c14", outline="", smooth=True),
+            "bars": [cv.create_line(0, 0, 0, 0, width=3, capstyle="round") for _ in range(N)],
+            "core": cv.create_oval(0, 0, 1, 1, fill="#ffffff", outline=""),
+            "rings": [{"id": cv.create_oval(0, 0, 1, 1, outline="", width=3), "life": 0.0, "hue": 0.0}
+                      for _ in range(5)],
+            "parts": [{"id": cv.create_oval(0, 0, 1, 1, fill="", outline=""),
+                       "x": 0.0, "y": 0.0, "vx": 0.0, "vy": 0.0, "life": 0.0, "hue": 0.0}
+                      for _ in range(90)],
+        }
+        self._viz_state = st
+        hint = cv.create_text(14, 14, anchor="nw", fill="#3a4150",
+                              text="ESC — закрыть · F11 — полный экран · двойной клик — полный экран",
+                              font=("Segoe UI", 9))
+        st["hint"] = hint
+
+        def on_resize(ev=None):
+            st["W"] = cv.winfo_width(); st["H"] = cv.winfo_height()
+            st["cx"] = st["W"] * 0.5; st["cy"] = st["H"] * 0.5
+            st["R"] = min(st["W"], st["H"]) * 0.24
+            cv.coords(st["bg"], 0, 0, st["W"], st["H"])
+
+        cv.bind("<Configure>", on_resize)
+
+        def toggle_fs(ev=None):
+            try:
+                win.attributes("-fullscreen", not bool(win.attributes("-fullscreen")))
+            except Exception:
+                pass
+
+        win.bind("<F11>", toggle_fs)
+        cv.bind("<Double-Button-1>", toggle_fs)
+        win.bind("<Escape>", lambda e: self._viz_close())
+        win.protocol("WM_DELETE_WINDOW", self._viz_close)
+        on_resize()
+        self._viz_tick()
+
+    def _viz_close(self):
+        if self._viz_job is not None:
+            try:
+                self.root.after_cancel(self._viz_job)
+            except Exception:
+                pass
+            self._viz_job = None
+        if self.viz_win is not None:
+            try:
+                self.viz_win.destroy()
+            except Exception:
+                pass
+        self.viz_win = None
+        self._viz_state = None
+
+    def _viz_tick(self):
+        st = getattr(self, "_viz_state", None)
+        if st is None or self.viz_win is None:
+            return
+        try:
+            if not self.viz_win.winfo_exists():
+                return
+        except Exception:
+            return
+        cv = st["cv"]; e = self.engine; N = st["N"]
+        cx, cy, R = st["cx"], st["cy"], st["R"]
+
+        if not e.running:        # тишина — плавно гасим
+            e.viz_bands = e.viz_bands * 0.90
+            e.viz_level *= 0.90
+            e.viz_bass *= 0.90
+
+        # ── AUTO-GAIN: нормализуем к недавнему пику, чтобы всегда был полный размах ──
+        raw = e.viz_bands
+        pk = float(raw.max()) if raw.size else 0.0
+        st["norm"] = max(pk, st["norm"] * 0.990, 0.015)
+        tgt = np.clip(raw / st["norm"], 0.0, 1.0)
+        prev = st["bands"]
+        # резкая атака, плавный спад
+        st["bands"] = np.where(tgt > prev, prev * 0.30 + tgt * 0.70, prev * 0.74 + tgt * 0.26)
+        bands = st["bands"]
+        # level AGC
+        st["lvl_norm"] = max(e.viz_level, st["lvl_norm"] * 0.992, 0.02)
+        ln = e.viz_level / st["lvl_norm"]
+        st["level"] = st["level"] * 0.55 + ln * 0.45
+        level = min(1.0, st["level"])
+        # bass AGC (для ядра)
+        st["bass_norm"] = max(e.viz_bass, st["bass_norm"] * 0.99, 0.004)
+        bassn = min(1.0, e.viz_bass / st["bass_norm"])
+        st["centroid"] = st["centroid"] * 0.82 + e.viz_centroid * 0.18
+        centroid = st["centroid"]
+        # consume beat
+        beat_now = e.viz_beat
+        e.viz_beat = 0.0
+        st["beat"] = max(st["beat"] * 0.82, beat_now)
+        beat = st["beat"]
+        # rotation: drift + treble energy + beat kick
+        st["rot"] += 0.004 + min(0.06, e.viz_treble * 3.0) + beat * 0.02
+        rot = st["rot"]
+        dom_hue = 0.62 - 0.5 * centroid + 0.05 * math.sin(rot * 0.3)
+
+        # background tint (вспыхивает на бите)
+        cv.itemconfig(st["bg"], fill=self._hsv_hex(dom_hue, 0.7, 0.04 + 0.10 * level + 0.10 * beat))
+        # halo
+        hr = R * (1.3 + 3.4 * level + 2.0 * beat)
+        cv.coords(st["halo"], cx - hr, cy - hr, cx + hr, cy + hr)
+        cv.itemconfig(st["halo"], fill=self._hsv_hex(dom_hue, 0.85, 0.12 + 0.20 * level + 0.18 * beat))
+
+        # bars + polygon tips
+        ang = rot + np.arange(N) * (2.0 * math.pi / N)
+        rin = R * 0.90
+        length = R * (0.12 + 3.6 * bands)         # длинные полосы во весь экран
+        rout = rin + length
+        ca = np.cos(ang); sa = np.sin(ang)
+        x1 = cx + ca * rin; y1 = cy + sa * rin
+        x2 = cx + ca * rout; y2 = cy + sa * rout
+        tips = []
+        bars = st["bars"]; base_hue = st["base_hue"]
+        hue_shift = 0.10 * math.sin(rot * 0.7) + 0.15 * beat
+        for i in range(N):
+            bi = bands[i]
+            cv.coords(bars[i], x1[i], y1[i], x2[i], y2[i])
+            hue = base_hue[i] + hue_shift
+            val = 0.55 + 0.45 * bi + 0.2 * beat            # ярче
+            sat = 1.0 - 0.30 * bi
+            cv.itemconfig(bars[i], fill=self._hsv_hex(hue, sat, min(1.0, val)),
+                          width=2 + int(6 * bi))           # толще на пиках
+            tips.extend((x2[i], y2[i]))
+        cv.coords(st["poly"], *tips)
+        cv.itemconfig(st["poly"], fill=self._hsv_hex(dom_hue, 0.9, 0.14 + 0.16 * level))
+
+        # core
+        crv = R * (0.30 + 0.6 * bassn + 0.8 * beat)
+        crv = min(crv, R * 1.4)
+        cv.coords(st["core"], cx - crv, cy - crv, cx + crv, cy + crv)
+        cv.itemconfig(st["core"], fill=self._hsv_hex(dom_hue, 0.20, min(1.0, 0.8 + 0.2 * beat)))
+
+        # beat → ring + particles
+        if beat_now > 0.5:
+            for rg in st["rings"]:
+                if rg["life"] <= 0.01:
+                    rg["life"] = 1.0; rg["hue"] = dom_hue
+                    break
+            spawn = int(18 + 30 * level)
+            for p in st["parts"]:
+                if spawn <= 0:
+                    break
+                if p["life"] <= 0.01:
+                    a = random.random() * 2.0 * math.pi
+                    sp = R * (0.08 + 0.16 * random.random()) * (1.0 + 1.5 * level)
+                    p["x"] = cx; p["y"] = cy
+                    p["vx"] = math.cos(a) * sp; p["vy"] = math.sin(a) * sp
+                    p["life"] = 1.0; p["hue"] = base_hue[random.randrange(N)]
+                    spawn -= 1
+
+        # update rings
+        for rg in st["rings"]:
+            if rg["life"] > 0.01:
+                rg["life"] -= 0.038
+                rr = R * (0.5 + (1.0 - rg["life"]) * 4.2)
+                cv.coords(rg["id"], cx - rr, cy - rr, cx + rr, cy + rr)
+                cv.itemconfig(rg["id"], outline=self._hsv_hex(rg["hue"], 0.9, rg["life"]),
+                              width=max(1, int(7 * rg["life"])))
+            else:
+                cv.coords(rg["id"], -10, -10, -8, -8)
+
+        # update particles
+        for p in st["parts"]:
+            if p["life"] > 0.01:
+                p["life"] -= 0.022
+                p["x"] += p["vx"]; p["y"] += p["vy"]
+                p["vx"] *= 0.97; p["vy"] *= 0.97
+                pr = 2 + 7 * p["life"]
+                cv.coords(p["id"], p["x"] - pr, p["y"] - pr, p["x"] + pr, p["y"] + pr)
+                cv.itemconfig(p["id"], fill=self._hsv_hex(p["hue"], 0.8, p["life"]))
+            else:
+                cv.coords(p["id"], -10, -10, -8, -8)
+
+        self._viz_job = self.root.after(33, self._viz_tick)
 
     def _set_run_btn(self, on):
         if on:
