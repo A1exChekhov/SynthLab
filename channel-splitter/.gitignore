@@ -8,6 +8,6 @@ buildenv/
 installer_out/
 eq_presets.json
 releases/
-shot.png
+shot*.png
 app_out.log
 app_err.log
