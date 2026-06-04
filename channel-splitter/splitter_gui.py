@@ -1086,6 +1086,7 @@ class App:
 
     def _calibrate_worker(self, mic_idx, outs):
         try:
+            time.sleep(0.4)  # let devices settle after the engine stopped
             lat = {}
             for o in outs:
                 self._set_cal_status(f"замер: {o.name[:22]}…")
@@ -1102,7 +1103,15 @@ class App:
                 self._calibrating = False
             self.root.after(0, apply)
         except Exception as e:
-            self._set_cal_status(f"ошибка: {e}")
+            import traceback
+            try:
+                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calib_error.log"), "w", encoding="utf-8") as fh:
+                    fh.write(traceback.format_exc())
+            except Exception:
+                pass
+            msg = str(e)
+            self._set_cal_status(f"ошибка: {msg[:60]}")
+            self.root.after(0, lambda: messagebox.showerror("Калибровка", msg))
             self._calibrating = False
 
     def _calibrate_one(self, mic_idx, spk_idx):
@@ -1141,9 +1150,27 @@ class App:
                 outdata[k:] = 0
             pi[0] += k
 
-        inp = sd.InputStream(device=mic_idx, channels=1, samplerate=mic_sr, blocksize=1024, dtype="float32", callback=in_cb)
-        out = sd.OutputStream(device=spk_idx, channels=2, samplerate=spk_sr, blocksize=1024, dtype="float32", callback=out_cb)
-        inp.start(); out.start()
+        inp = out = None
+        last_err = None
+        for _attempt in range(2):
+            try:
+                inp = sd.InputStream(device=mic_idx, channels=1, samplerate=mic_sr, blocksize=1024, dtype="float32", callback=in_cb)
+                out = sd.OutputStream(device=spk_idx, channels=2, samplerate=spk_sr, blocksize=1024, dtype="float32", callback=out_cb)
+                inp.start(); out.start()
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                for st in (inp, out):
+                    try:
+                        if st is not None:
+                            st.close()
+                    except Exception:
+                        pass
+                inp = out = None
+                time.sleep(0.4)
+        if last_err is not None:
+            raise RuntimeError(f"открытие потоков (mic sr={mic_sr}, spk sr={spk_sr}): {last_err}")
         time.sleep(rec_secs + 0.2)
         try:
             out.stop(); inp.stop(); out.close(); inp.close()
