@@ -1139,10 +1139,16 @@ class App:
     def _calibrate_worker(self, mic_idx, outs, amp=0.16):
         try:
             time.sleep(0.4)  # let devices settle after the engine stopped
+            # assign each speaker its own log-spaced frequency band (distinct, distinguishable)
+            m = len(outs)
+            lo, hi = 150.0, 7000.0
+            edges = [lo * (hi / lo) ** (j / max(1, m)) for j in range(m + 1)]
             lat = {}
-            for o in outs:
-                self._set_cal_status(f"замер: {o.name[:22]}…")
-                lat[o.id] = self._calibrate_one(mic_idx, o.idx, amp)
+            for i, o in enumerate(outs):
+                f0 = edges[i]
+                f1 = max(edges[i + 1], f0 * 2.0)
+                self._set_cal_status(f"замер: {o.name[:18]} ({int(f0)}–{int(f1)} Гц)…")
+                lat[o.id] = self._calibrate_one(mic_idx, o.idx, amp, f0, f1)
             mx = max(lat.values()) if lat else 0.0
             delays = {oid: max(0.0, (mx - l) * 1000.0) for oid, l in lat.items()}
 
@@ -1169,7 +1175,7 @@ class App:
             self.root.after(0, lambda: messagebox.showerror("Калибровка", msg))
             self._calibrating = False
 
-    def _calibrate_one(self, mic_idx, spk_idx, amp=0.16):
+    def _calibrate_one(self, mic_idx, spk_idx, amp=0.16, f0=150.0, f1=6000.0):
         # Use each device's NATIVE sample rate (mics/BT speakers vary) to avoid open errors.
         try:
             spk_sr = int(sd.query_devices(spk_idx).get("default_samplerate") or SR)
@@ -1180,15 +1186,21 @@ class App:
         except Exception:
             mic_sr = SR
 
-        play_ref = make_chirp(sr=spk_sr, amp=amp)
-        corr_ref = make_chirp(sr=mic_sr, amp=amp)
+        play_ref = make_chirp(sr=spk_sr, amp=amp, f0=f0, f1=f1)
+        corr_ref = make_chirp(sr=mic_sr, amp=1.0, f0=f0, f1=f1)
         nplay, ncorr = len(play_ref), len(corr_ref)
         rec_secs = ncorr / mic_sr + 0.6
         n_rec = int(rec_secs * mic_sr)
         recbuf = np.zeros(n_rec, dtype=np.float32)
         ri = [0]
+        adc0 = [None]
 
-        def in_cb(indata, frames, _t, _s):
+        def in_cb(indata, frames, t, _s):
+            if adc0[0] is None:
+                try:
+                    adc0[0] = float(t.inputBufferAdcTime)
+                except Exception:
+                    adc0[0] = None
             k = min(frames, n_rec - ri[0])
             if k > 0:
                 recbuf[ri[0]:ri[0] + k] = indata[:k, 0]
@@ -1196,8 +1208,14 @@ class App:
 
         stereo = np.column_stack([play_ref, play_ref])
         pi = [0]
+        dac0 = [None]
 
-        def out_cb(outdata, frames, _t, _s):
+        def out_cb(outdata, frames, t, _s):
+            if dac0[0] is None:
+                try:
+                    dac0[0] = float(t.outputBufferDacTime)
+                except Exception:
+                    dac0[0] = None
             k = min(frames, nplay - pi[0])
             if k > 0:
                 outdata[:k] = stereo[pi[0]:pi[0] + k]
@@ -1233,7 +1251,11 @@ class App:
             pass
         corr = fftconvolve(recbuf, corr_ref[::-1], mode="full")
         lag = int(np.argmax(np.abs(corr))) - (ncorr - 1)
-        return max(0.0, lag / mic_sr)
+        arrival_s = lag / mic_sr
+        # Absolute latency via PortAudio DAC/ADC timestamps — immune to stream-start jitter
+        if adc0[0] is not None and dac0[0] is not None:
+            return max(0.0, (adc0[0] + arrival_s) - dac0[0])
+        return max(0.0, arrival_s)
 
     def _resolve_sources(self):
         ok = []
