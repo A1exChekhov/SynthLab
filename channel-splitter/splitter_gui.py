@@ -745,6 +745,16 @@ class App:
         ttk.Button(row, text="✕", width=2, command=lambda: self.remove_output(spk, row)).pack(side="left", padx=2)
 
         self.out_rows.append({"spk": spk, "cb": cb, "mtr": mtr, "delay_var": dv})
+        if default_sub is None and len(self.out_rows) >= 3 and not getattr(self, "_warned_many", False):
+            self._warned_many = True
+            messagebox.showinfo(
+                "Несколько колонок — важно",
+                "⚠️ Bluetooth: ноутбучный BT-чип обычно стабильно тянет МАКСИМУМ 2 BT-колонки "
+                "одновременно. При 3+ звук начинает заикаться/хрипеть (перегруз радиоканала 2.4 ГГц) — "
+                "буфер это не лечит.\n\n"
+                "⚠️ Умные/сетевые колонки (Яндекс «Алиса», Sonos, и т.п.) могут отображаться в списке, "
+                "но НЕ воспроизводить через Windows — они играют только через свой кастинг.\n\n"
+                "Совет: держи ≤2 Bluetooth; остальные подключай проводом/USB.")
         if self.engine.running:
             self._reapply()
 
