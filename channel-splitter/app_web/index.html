@@ -31,7 +31,7 @@
       repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);
     color:var(--fg);font-family:var(--sans);font-weight:400;font-size:13px;line-height:1.4;
     -webkit-font-smoothing:antialiased;letter-spacing:.01em}
-  .wrap{max-width:1500px;margin:0 auto;padding:34px 34px 50px}
+  .wrap{max-width:1360px;margin:0 auto;padding:30px 30px 46px}
 
   .face{position:relative;background-repeat:no-repeat;background:
       radial-gradient(circle at 13px 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
@@ -59,7 +59,8 @@
   .by b{color:var(--amber);font-weight:400}
 
   /* ===== Модуль-плеер (табло «сейчас играет») ===== */
-  .player{display:grid;grid-template-columns:1fr 230px;gap:18px;align-items:stretch;padding:38px 28px 14px}
+  #mod-player .pbody{padding:8px 28px 12px}
+  .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
   .screen{position:relative;background:linear-gradient(180deg,#070a0b,#04070a);border:1px solid #000;border-radius:3px;
     box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025);padding:9px 16px;overflow:hidden}
   .screen::after{content:"";position:absolute;inset:0;pointer-events:none;
@@ -93,7 +94,7 @@
      • если экран широкий — два столбца, если узкий — один (адаптивно);
      • высота СТРОГО кратна единице: половина = 1 ряд, целый = 2 ряда;
      • плотная упаковка заполняет пустоты. */
-  .stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(680px,1fr));
+  .stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(620px,1fr));
     grid-auto-rows:124px;grid-auto-flow:row dense;gap:10px}
   .stack>section{min-width:0}
   .stack>section:has(.u-half){grid-row:span 1}
@@ -124,6 +125,10 @@
   .btn:hover{color:#fff;background:linear-gradient(180deg,#31363c,#1f2226)}
   .btn:active{transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.7)}
   .btn .led-dot{width:6px;height:6px}
+  /* активная (ON) кнопка — нейтральный фон, СВЕТЯЩИЕСЯ янтарные буквы */
+  .btn.on{color:var(--amber);text-shadow:0 0 9px rgba(232,176,75,.75);border-color:rgba(232,176,75,.5);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 -3px 5px rgba(0,0,0,.5),0 0 12px rgba(232,176,75,.16)}
+  .btn.on:hover{color:#ffd98a}
 
   /* ===== Строка устройства =====
      ПРАВИЛО ЕДИНОГО СТИЛЯ: все ряды во всех модулях используют ОДНУ сетку колонок —
@@ -131,8 +136,10 @@
      на одинаковом расстоянии от краёв и выровнены строго друг над другом во всех
      блоках. Если в ряду нет элемента (напр. нет роли у источника) — ставится пустая
      ячейка-placeholder, а не меняется сетка. */
-  .row{display:grid;grid-template-columns:minmax(130px,1.5fr) 196px minmax(70px,1.2fr) minmax(90px,1.5fr) 58px;
+  .row{display:grid;grid-template-columns:minmax(130px,1.5fr) 196px minmax(70px,1.2fr) minmax(90px,1.5fr) 58px 30px;
     gap:14px;align-items:center;height:60px;border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
+  .rrm{min-width:0;width:28px;height:28px;padding:0;font-size:12px;letter-spacing:0;color:#8a8d88}
+  .rrm:hover{color:#fff;border-color:#ee5a4a;background:rgba(238,90,74,.16)}
   .row:last-child{border-bottom:0;box-shadow:none}
   .dev{display:flex;align-items:center;gap:12px;min-width:0}
   .dev .nm{font-weight:400;font-size:14px;letter-spacing:.03em;color:#e3e5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -147,7 +154,7 @@
     padding-top:5px}
   .seg button:first-child{border-left:0}
   .seg button:hover{color:#fff}
-  .seg button.on{color:#fff;background:linear-gradient(180deg,#14161a,#1b1e22);box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
+  .seg button.on{color:var(--amber);text-shadow:0 0 7px rgba(232,176,75,.7);background:linear-gradient(180deg,#14161a,#1b1e22);box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
   .seg button.on::before{content:"";position:absolute;left:50%;top:4px;transform:translateX(-50%);
     width:13px;height:2px;border-radius:1px;background:var(--amber);box-shadow:0 0 6px var(--amber)}
 
@@ -280,6 +287,14 @@
     padding:5px 8px;max-width:100%;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
   .meta select.devsel{font-size:10px;padding:2px 6px;color:var(--sub)}
   .mute-on{color:var(--red)!important}
+  /* тёмный нативный выпадающий список */
+  select.devsel{color-scheme:dark}
+  .devsel option{background:#15171a;color:#dadcd8}
+  /* под-слайдеры (реверб: Size + Mix) */
+  .fxsub{display:flex;align-items:center;gap:8px;margin-top:5px}
+  .fxsub .fader{flex:1}
+  .fxsub .t2{font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--sub);width:30px}
+  .fxsub .led{font-size:11px;width:30px;text-align:right}
 </style>
 </head>
 <body>
@@ -299,16 +314,19 @@
 
     <!-- Плеер -->
     <section id="mod-player">
-      <div class="face player u-half">
-        <button class="btn eject pl-eject" onclick="setVis('mod-player',false)">✕</button>
-        <div class="player-brand"><b>Errarium</b> · MS-110 · Media Transport</div>
-        <div class="screen">
-          <div class="np-label"><span class="led-dot on" id="np-led"></span> <span id="np-src">Now Playing</span></div>
-          <div class="np-title" id="np-title">—</div>
-          <div class="np-sub" id="np-sub"></div>
-          <div class="prog"><span class="t" id="np-cur">00:00</span><div class="bar"><i id="np-bar"></i></div><span class="t" id="np-tot">00:00</span></div>
+      <div class="face mod u-half">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">MS-110</span><span class="fn">Media Transport</span></div>
+          <div class="actions"><button class="btn eject" onclick="setVis('mod-player',false)">✕</button></div></div>
+        <div class="pbody player-body">
+          <div class="screen">
+            <div class="np-label"><span class="led-dot on" id="np-led"></span> <span id="np-src">Now Playing</span></div>
+            <div class="np-title" id="np-title">—</div>
+            <div class="np-sub" id="np-sub"></div>
+            <div class="prog"><span class="t" id="np-cur">00:00</span><div class="bar"><i id="np-bar"></i></div><span class="t" id="np-tot">00:00</span></div>
+          </div>
+          <div class="params" id="player-params"></div>
         </div>
-        <div class="params" id="player-params"></div>
       </div>
     </section>
 
@@ -366,7 +384,9 @@
           <div class="fxfaders">
             <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-comp" data-fx="comp">Compressor · OFF</span><span class="led" id="led-comp">-18</span></div><div class="fader" id="fader-comp"><div class="trk"></div><div class="cap"></div></div></div>
             <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-mb" data-fx="mb">Mono-Bass · OFF</span><span class="led" id="led-mb">120</span></div><div class="fader" id="fader-mb"><div class="trk"></div><div class="cap"></div></div></div>
-            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-rev" data-fx="rev">Reverb · OFF</span><span class="led" id="led-rev">22</span></div><div class="fader" id="fader-rev"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-rev" data-fx="rev">Reverb · OFF</span></div>
+              <div class="fxsub"><span class="t2">Size</span><div class="fader" id="fader-revsize"><div class="trk"></div><div class="cap"></div></div><span class="led" id="led-revsize">50</span></div>
+              <div class="fxsub"><span class="t2">Mix</span><div class="fader" id="fader-rev"><div class="trk"></div><div class="cap"></div></div><span class="led" id="led-rev">22</span></div></div>
           </div>
           <div class="phase"><span class="lbl">Phase Ø</span><div class="seg sm" id="phase-seg"></div></div>
         </div>
@@ -409,6 +429,35 @@
   <div class="foot">© 2026 <b>Errarium™</b> · Channel Splitter</div>
 
 </div>
+
+<div id="preset-modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div class="face" style="width:480px;padding:20px 24px">
+    <div class="fp" style="margin-bottom:14px"><span class="marque">Errarium</span><span class="model">EQ-12</span><span class="fn">Presets</span></div>
+    <div id="preset-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:260px;overflow:auto"></div>
+    <div style="display:flex;gap:8px">
+      <input id="preset-name" placeholder="Имя нового пресета…" style="flex:1;background:#0c0d0f;color:var(--fg);border:1px solid #000;border-radius:3px;padding:8px 10px;font-family:var(--cond);font-size:12px;letter-spacing:.04em;color-scheme:dark">
+      <button class="btn" id="preset-save">Сохранить</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" id="preset-close">Закрыть</button></div>
+  </div>
+</div>
+
+<div id="calib-modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div class="face" style="width:520px;padding:20px 24px">
+    <div class="fp" style="margin-bottom:14px"><span class="marque">Errarium</span><span class="model">CAL-1</span><span class="fn">Auto-Calibration</span></div>
+    <div style="color:var(--fg-2);font-size:12px;margin-bottom:9px;font-family:var(--cond);letter-spacing:.06em">
+      Микрофон выровняет задержки между выходами. Поставь микрофон между колонок и нажми «Калибровать» (прозвучит тихий свип на каждую колонку).
+    </div>
+    <div style="color:var(--sub);font-size:10px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px">Микрофон</div>
+    <select id="calib-mic" class="devsel" style="width:100%;margin-bottom:16px"></select>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" id="calib-cancel">Отмена</button>
+      <button class="btn" id="calib-run">Калибровать</button>
+    </div>
+    <div id="calib-status" style="color:var(--amber);font-size:11px;margin-top:12px;font-family:var(--led);min-height:14px"></div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

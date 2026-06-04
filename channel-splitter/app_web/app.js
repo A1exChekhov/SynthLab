@@ -71,8 +71,6 @@ function renderOutputs(){
     sub.onclick=()=>{ API.set_output(o.id,'sub',!o.sub).then(refresh); };
     meta.appendChild(mute); meta.appendChild(dly); meta.appendChild(di); meta.appendChild(sub);
     col.appendChild(meta); dev.appendChild(col);
-    const rm=el('button','btn eject','✕'); rm.style.position='static'; rm.style.width='22px'; rm.style.height='22px';
-    rm.onclick=()=>API.remove_output(o.id).then(refresh); dev.appendChild(rm);
     row.appendChild(dev);
     // role seg
     const seg=el('div','seg');
@@ -87,6 +85,9 @@ function renderOutputs(){
     const vu=el('div','vu'); vu.dataset.outvu=o.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
     // value (dB peak)
     const led=el('div','led','-inf'); led.dataset.outdb=o.id; row.appendChild(led);
+    // remove output (clear, at row end)
+    const rm=el('button','btn rrm','✕'); rm.title='Удалить выход';
+    rm.onclick=()=>API.remove_output(o.id).then(refresh); row.appendChild(rm);
     box.appendChild(row);
   });
 }
@@ -99,9 +100,12 @@ function renderSources(){
     const dot=el('span','led-dot amber'); dev.appendChild(dot);
     const col=el('div'); col.style.minWidth='0'; col.style.flex='1';
     if(s.loopback){
-      const nm=el('div','nm', s.name||'System Audio');
-      const meta=el('div','meta','loopback');
-      col.appendChild(nm); col.appendChild(meta);
+      const nm=el('div','nm','System Audio'); col.appendChild(nm);
+      const DEF='— устройство по умолчанию —';
+      const lbList=[{idx:-1,label:DEF}].concat((ST.lb_speakers||[]).map((name,i)=>({idx:i,label:name})));
+      const sel=deviceSelect(lbList, s.lb_name||DEF, '', lbl=>{ API.set_source(s.id,'lb_name', lbl===DEF?'':lbl).then(refresh); });
+      const meta=el('div','meta'); meta.appendChild(el('span',null,'захват: ')); meta.appendChild(sel);
+      col.appendChild(meta);
     } else {
       col.appendChild(deviceSelect(ST.in_devices, s.device, '', lbl=>{ API.set_source(s.id,'device',lbl).then(refresh); }));
       const meta=el('div','meta');
@@ -110,10 +114,8 @@ function renderSources(){
       meta.appendChild(inv); meta.appendChild(mute); col.appendChild(meta);
     }
     dev.appendChild(col);
-    const rm=el('button','btn eject','✕'); rm.style.position='static'; rm.style.width='22px'; rm.style.height='22px';
-    rm.onclick=()=>API.remove_source(s.id).then(refresh); dev.appendChild(rm);
     row.appendChild(dev);
-    // balance seg (placeholder column) — show pan as small text for now
+    // balance seg (placeholder column)
     const segc=el('div'); row.appendChild(segc);
     // volume
     const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
@@ -122,6 +124,8 @@ function renderSources(){
     row.appendChild(fader);
     const vu=el('div','vu'); vu.dataset.srcvu=s.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
     const led=el('div','led', String(Math.round(s.vol*100))); led.dataset.srcvol=s.id; row.appendChild(led);
+    const rm=el('button','btn rrm','✕'); rm.title='Удалить источник';
+    rm.onclick=()=>API.remove_source(s.id).then(refresh); row.appendChild(rm);
     box.appendChild(row);
   });
 }
@@ -174,6 +178,7 @@ function renderFX(){
   fxFader('comp','comp_thresh',-40,0, v=>Math.round(v)+'');
   fxFader('mb','monobass_hz',60,250, v=>Math.round(v)+'');
   fxFader('rev','reverb_mix',0,0.8, v=>Math.round(v*100)+'');
+  fxFader('revsize','reverb_size',0,1, v=>Math.round(v*100)+'');
   bindFxToggle('lbl-comp','comp_on','Compressor');
   bindFxToggle('lbl-mb','monobass_on','Mono-Bass');
   bindFxToggle('lbl-rev','reverb_on','Reverb');
@@ -304,23 +309,50 @@ function wire(){
   $('btn-add-sys').onclick=()=>API.add_loopback().then(refresh);
   $('btn-eq-on').onclick=()=>{ ST.eq.on=!ST.eq.on; API.set_eq_on(ST.eq.on).then(()=>renderEQ()); };
   $('btn-eq-reset').onclick=()=>API.eq_reset().then(refresh);
-  $('btn-eq-presets').onclick=presetMenu;
+  $('btn-eq-presets').onclick=openPresets;
+  $('preset-close').onclick=()=>{ $('preset-modal').style.display='none'; };
+  $('preset-save').onclick=()=>{ const n=$('preset-name').value.trim(); if(n) API.eq_save(n).then(openPresets); };
   $('btn-power').onclick=()=>API.toggle().then(refresh);
-  $('btn-devices').onclick=()=>API.refresh_devices().then(refresh);
+  $('btn-devices').title='Пересканировать аудиоустройства';
+  $('btn-devices').onclick=()=>{ const b=$('btn-devices'); b.textContent='…'; API.refresh_devices().then(()=>refresh()).then(()=>{ b.textContent='Devices'; }); };
+  $('btn-viz').title='Открыть GPU-цветомузыку (полный экран / 4K)';
   $('btn-viz').onclick=()=>API.open_viz();
   $('btn-viz-open').onclick=()=>API.open_viz();
+  $('btn-fx').title='Показать модуль спецэффектов (DSP)';
   $('btn-fx').onclick=()=>{ const m=$('mod-fx'); if(m.style.display==='none'){ setVis('mod-fx',true);} m.scrollIntoView({behavior:'smooth'}); };
-  $('btn-calib').onclick=()=>{ API.calibrate().then(r=>{ alert(r||'Калибровка завершена'); refresh(); }); };
+  $('btn-calib').title='Авто-выравнивание задержек по микрофону';
+  $('btn-calib').onclick=openCalib;
+  $('calib-cancel').onclick=()=>{ $('calib-modal').style.display='none'; };
+  $('calib-run').onclick=()=>{
+    const sel=$('calib-mic'); const lbl=sel.options.length?sel.options[sel.selectedIndex].text:'';
+    $('calib-status').textContent='Измеряю задержки…';
+    API.calibrate(lbl).then(r=>{ $('calib-status').textContent=r||'Готово'; refresh(); });
+  };
   document.querySelectorAll('#viz-color button').forEach(b=>{ b.onclick=()=>{ const cm=parseInt(b.dataset.cm); ST.viz.color_mode=cm; API.set_viz('color_mode',cm); renderVizColor(); }; });
 }
 
-function presetMenu(){
+function openCalib(){
+  const sel=$('calib-mic'); sel.innerHTML='';
+  (ST.mic_devices||[]).forEach(d=>{ const o=el('option',null,d.label); o.value=d.idx; sel.appendChild(o); });
+  if(!sel.options.length){ sel.appendChild(el('option',null,'(микрофон не найден)')); }
+  $('calib-status').textContent='';
+  $('calib-modal').style.display='flex';
+}
+
+function openPresets(){
   API.eq_presets().then(names=>{
-    let msg='Пресеты:\n'+(names.length?names.join('\n'):'(нет)')+'\n\nВведи имя для ПРИМЕНЕНИЯ, или новое имя + "!" для СОХРАНЕНИЯ:';
-    const inp=prompt(msg,'');
-    if(!inp) return;
-    if(inp.endsWith('!')){ API.eq_save(inp.slice(0,-1).trim()).then(refresh); }
-    else { API.eq_apply(inp.trim()).then(refresh); }
+    const box=$('preset-list'); box.innerHTML='';
+    if(!names.length){ const e=el('div',null,'Нет сохранённых пресетов'); e.style.color='var(--sub)'; e.style.fontSize='11px'; e.style.padding='6px 2px'; box.appendChild(e); }
+    names.forEach(n=>{
+      const r=el('div'); r.style.display='flex'; r.style.gap='8px'; r.style.alignItems='center';
+      const ap=el('button','btn',n); ap.style.flex='1'; ap.style.justifyContent='flex-start';
+      ap.onclick=()=>{ API.eq_apply(n).then(()=>{ refresh(); $('preset-modal').style.display='none'; }); };
+      const dl=el('button','btn rrm','✕'); dl.title='Удалить пресет';
+      dl.onclick=()=>API.eq_delete(n).then(openPresets);
+      r.appendChild(ap); r.appendChild(dl); box.appendChild(r);
+    });
+    $('preset-name').value='';
+    $('preset-modal').style.display='flex';
   });
 }
 

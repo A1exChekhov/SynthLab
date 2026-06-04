@@ -125,7 +125,7 @@ class AppCore:
     def add_loopback(self):
         s = core.Source(0, "System Audio")
         s.loopback = True
-        s.lb_name = self.lb[0] if self.lb else ""
+        s.lb_name = ""   # "" → захват устройства Windows по умолчанию (что реально играет)
         self.sources.append(s); self._reapply()
 
     def remove_source(self, sid):
@@ -138,6 +138,8 @@ class AppCore:
         struct = False
         if field == "device":
             s.label = value; struct = True
+        elif field == "lb_name":
+            s.lb_name = value; struct = True
         elif field == "vol":
             s.vol = float(value)
         elif field == "bal":
@@ -284,9 +286,116 @@ class AppCore:
     def set_viz(self, key, value):
         self.engine.viz_cfg[key] = value if isinstance(value, (bool, str)) else float(value)
 
-    def calibrate(self):
-        return ("Авто-калибровка по микрофону доступна в разделе задержек. "
-                "Сейчас используйте ручные задержки (dly мс) у каждого выхода.")
+    def calibrate(self, mic_label=None):
+        """Авто-выравнивание задержек по микрофону: chirp на каждый выход →
+        кросс-корреляция → задержка = max(lat) - lat_i (мс) на каждый выход."""
+        if not self.mic:
+            return "Микрофон не найден (нужен вход WASAPI/MME)."
+        mic_idx = next((i for i, l in self.mic if l == mic_label), self.mic[0][0])
+        was = self.engine.running
+        self.engine.stop()
+        _, outs = self._resolve()
+        outs = [o for o in outs if not o.is_sub and o.idx is not None]
+        if not outs:
+            if was:
+                self._start()
+            return "Нет выходов для калибровки."
+        try:
+            res = self._calibrate(mic_idx, outs)
+        except Exception as e:
+            res = "Ошибка калибровки: " + str(e)
+        if was:
+            self._start()
+        return res
+
+    def _calibrate(self, mic_idx, outs, amp=0.16):
+        import time as _t
+        import sounddevice as sd
+        _t.sleep(0.3)
+        try:
+            mic_sr = int(sd.query_devices(mic_idx).get("default_samplerate") or core.SR)
+        except Exception:
+            mic_sr = core.SR
+        m = len(outs)
+        lo, hi = 150.0, 7000.0
+        edges = [lo * (hi / lo) ** (j / max(1, m)) for j in range(m + 1)]
+        chirp_secs = 1.0
+        slot = chirp_secs + 0.9
+        n_rec = int((m * slot + 1.2) * mic_sr)
+        recbuf = np.zeros(n_rec, dtype=np.float32)
+        ri = [0]
+
+        def in_cb(indata, frames, _tt, _s):
+            k = min(frames, n_rec - ri[0])
+            if k > 0:
+                recbuf[ri[0]:ri[0] + k] = indata[:k, 0]
+            ri[0] += k
+
+        states, out_streams = [], []
+
+        def make_cb(st):
+            def cb(outdata, frames, _tt, _s):
+                if st["play"]:
+                    ch = st["chirp"]; n = st["n"]; k = min(frames, n - st["pi"])
+                    if k > 0:
+                        outdata[:k] = ch[st["pi"]:st["pi"] + k]
+                    if k < frames:
+                        outdata[k:] = 0
+                    st["pi"] += k
+                    if st["pi"] >= n:
+                        st["play"] = False
+                else:
+                    outdata.fill(0)
+            return cb
+
+        for i, o in enumerate(outs):
+            f0 = edges[i]; f1 = max(edges[i + 1], f0 * 2.0)
+            try:
+                spk_sr = int(sd.query_devices(o.idx).get("default_samplerate") or core.SR)
+            except Exception:
+                spk_sr = core.SR
+            chirp = core.make_chirp(dur=chirp_secs, sr=spk_sr, amp=amp, f0=f0, f1=f1)
+            st = {"play": False, "pi": 0, "chirp": np.column_stack([chirp, chirp]),
+                  "n": len(chirp), "f0": f0, "f1": f1}
+            states.append(st)
+            out_streams.append(sd.OutputStream(device=o.idx, channels=2, samplerate=spk_sr,
+                                               blocksize=1024, dtype="float32", callback=make_cb(st)))
+        inp = sd.InputStream(device=mic_idx, channels=1, samplerate=mic_sr, blocksize=1024,
+                             dtype="float32", callback=in_cb)
+        inp.start()
+        for os_ in out_streams:
+            os_.start()
+        _t.sleep(0.6)
+        lat = {}
+        try:
+            for o, st in zip(outs, states):
+                corr_ref = core.make_chirp(dur=chirp_secs, sr=mic_sr, amp=1.0, f0=st["f0"], f1=st["f1"])
+                cmd = ri[0]; st["pi"] = 0; st["play"] = True
+                _t.sleep(slot)
+                seg = recbuf[cmd:min(ri[0], n_rec)]
+                if seg.size >= len(corr_ref):
+                    corr = np.abs(core.fftconvolve(seg, corr_ref[::-1], mode="full"))
+                    peak = int(np.argmax(corr)) - (len(corr_ref) - 1)
+                    lat[o.id] = max(0.0, peak / mic_sr)
+                else:
+                    lat[o.id] = 0.0
+        finally:
+            try:
+                inp.stop(); inp.close()
+            except Exception:
+                pass
+            for os_ in out_streams:
+                try:
+                    os_.stop(); os_.close()
+                except Exception:
+                    pass
+        mx = max(lat.values()) if lat else 0.0
+        parts = []
+        for o in outs:
+            ms = int(round(max(0.0, (mx - lat.get(o.id, 0.0)) * 1000.0)))
+            o.set_delay(ms)
+            parts.append(getattr(o, "label", "").split(" (")[0][:10] + ": " + str(ms) + " мс")
+        return "✓ Задержки выставлены — " + "   ".join(parts)
 
     # ── state / meters ──
     def _role(self, o):
