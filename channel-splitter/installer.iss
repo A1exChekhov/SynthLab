@@ -2,7 +2,7 @@
 ; Build:  ISCC installer.iss   ->  installer_out\ChannelSplitter-Setup.exe
 
 #define MyAppName "Channel Splitter"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.1"
 #define MyAppPublisher "Errarium"
 #define MyAppExeName "ChannelSplitter.exe"
 

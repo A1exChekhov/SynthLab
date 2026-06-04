@@ -550,7 +550,7 @@ BD = "#2a2f37"; ACC = "#2dd36f"; ACC2 = "#0077b6"; RED = "#e63946"
 FONT = ("Segoe UI", 10)
 FONT_B = ("Segoe UI", 11, "bold")
 
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 BRAND = "Errarium™"
 DEVELOPER = "Errarium"
 
