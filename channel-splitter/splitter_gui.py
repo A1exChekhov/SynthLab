@@ -19,12 +19,13 @@ import math
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
 import numpy as np
 import sounddevice as sd
-from scipy.signal import sosfilt, butter
+from scipy.signal import sosfilt, butter, fftconvolve
 
 try:
     import soundcard as _sc
@@ -32,6 +33,20 @@ try:
 except Exception:
     _sc = None
     HAVE_LOOPBACK = False
+
+
+def make_chirp(dur=1.2, f0=80.0, f1=15000.0, sr=48000, amp=0.5):
+    """Log sweep (chirp) for latency calibration — unique, robust against room noise."""
+    n = int(dur * sr)
+    t = np.arange(n) / sr
+    k = (f1 / f0) ** (1.0 / dur)
+    phase = 2 * np.pi * f0 * ((k ** t - 1) / np.log(k))
+    sig = np.sin(phase).astype(np.float32)
+    fade = max(1, int(0.01 * sr))
+    w = np.ones(n, dtype=np.float32)
+    w[:fade] = np.linspace(0, 1, fade)
+    w[-fade:] = np.linspace(1, 0, fade)
+    return (sig * w * amp).astype(np.float32)
 
 
 def loopback_speakers():
@@ -209,6 +224,12 @@ class OutputSpk:
         self.peak = 0.0
         self.sos = None      # crossover sos
         self.stream = None
+        self.delay_ms = 0.0          # latency-compensation delay
+        self.delay_samples = 0
+
+    def set_delay(self, ms):
+        self.delay_ms = max(0.0, float(ms))
+        self.delay_samples = int(round(self.delay_ms / 1000.0 * SR))
 
     def build_filter(self):
         if self.is_sub:
@@ -355,6 +376,15 @@ class Engine:
                 mix, state["xzi"] = sosfilt(xs, mix, zi=state["xzi"])
             g = 0.0 if out.mute else out.vol
             mix = (mix * g * self.master).astype(np.float32)
+            # per-output latency-compensation delay line
+            dsamp = out.delay_samples
+            if dsamp > 0:
+                dly = state.get("dly")
+                if dly is None or dly.shape[0] != dsamp:
+                    dly = np.zeros(dsamp, dtype=np.float32)
+                ext = np.concatenate([dly, mix])
+                mix = ext[:frames].astype(np.float32)
+                state["dly"] = ext[frames:]
             if out is self._spec_src:
                 self._update_spectrum(mix)
             out.peak = float(np.max(np.abs(mix))) if mix.size else 0.0
@@ -498,6 +528,7 @@ class App:
         self.src_rows = []         # list of widget dicts
         self.outputs = []          # list[OutputSpk]
         self.out_rows = []         # list of output widget dicts
+        self._calibrating = False
         self.out_devs = devices(True)
         self.in_devs = devices(False)
         self._meter_disp = [0.0, 0.0]
@@ -572,8 +603,19 @@ class App:
         self.out_container.pack(fill="x", padx=10, pady=4)
         ohdr = ttk.Frame(self.out_container, style="Panel.TFrame")
         ohdr.pack(fill="x", padx=8, pady=(6, 0))
-        for txt, w in (("Устройство", 24), ("Канал", 8), ("Громк.", 12), ("Саб / Кроссовер", 16), ("Тест", 6), ("Ур.", 8)):
+        for txt, w in (("Устройство", 24), ("Канал", 8), ("Громк.", 12), ("Саб / Кроссовер", 16), ("Задержка", 9), ("Тест", 6), ("Ур.", 8)):
             ttk.Label(ohdr, text=txt, style="Sub.TLabel", width=w, anchor="w").pack(side="left", padx=2)
+
+        # ── Auto-calibration (latency alignment by microphone) ──
+        calf = ttk.Frame(self.root, style="Panel.TFrame")
+        calf.pack(fill="x", padx=10, pady=(0, 4))
+        ttk.Label(calf, text="🎤 Калибровка задержек — микрофон:", background=PANEL, foreground=ACC).pack(side="left", padx=(8, 6))
+        self.mic_cb = ttk.Combobox(calf, values=self._in_labels(), state="readonly", width=30, font=FONT)
+        self.mic_cb.pack(side="left", padx=2)
+        self._select_default(self.mic_cb, self.in_devs, "Microphone")
+        ttk.Button(calf, text="Калибровать", command=self.start_calibration).pack(side="left", padx=8)
+        self.cal_status = ttk.Label(calf, text="", background=PANEL, foreground=SUB)
+        self.cal_status.pack(side="left", padx=6)
 
         # ── Sources ──
         srchead = ttk.Frame(self.root)
@@ -651,6 +693,11 @@ class App:
                     command=lambda s=spk, var=xv: (setattr(s, "xover", float(var.get())), s.build_filter())).pack(side="left", padx=2)
         ttk.Label(row, text="Гц", background=PANEL, foreground=SUB).pack(side="left")
 
+        ttk.Label(row, text="↻мс", background=PANEL, foreground=SUB).pack(side="left", padx=(6, 0))
+        dv = tk.IntVar(value=0)
+        ttk.Spinbox(row, from_=0, to=500, increment=5, width=5, textvariable=dv,
+                    command=lambda s=spk, var=dv: s.set_delay(var.get())).pack(side="left", padx=2)
+
         ttk.Button(row, text="🔊", width=3, command=lambda s=spk: self.test_output(s)).pack(side="left", padx=4)
 
         mtr = tk.Canvas(row, width=50, height=12, bg=BD, highlightthickness=0)
@@ -658,7 +705,7 @@ class App:
 
         ttk.Button(row, text="✕", width=2, command=lambda: self.remove_output(spk, row)).pack(side="left", padx=2)
 
-        self.out_rows.append({"spk": spk, "cb": cb, "mtr": mtr})
+        self.out_rows.append({"spk": spk, "cb": cb, "mtr": mtr, "delay_var": dv})
 
     def remove_output(self, spk, row):
         if spk in self.outputs:
@@ -1013,6 +1060,85 @@ class App:
                 self._rebuild_combos()
                 self.status.config(text="🔄 список устройств обновлён")
         self.root.after(4000, self._device_poll)
+
+    # ── Auto latency calibration (chirp + microphone + cross-correlation) ──
+    def start_calibration(self):
+        if getattr(self, "_calibrating", False):
+            return
+        mic = self._combo_idx(self.mic_cb, self.in_devs)
+        if mic is None:
+            messagebox.showerror("Калибровка", "Выбери микрофон.")
+            return
+        outs = self._resolve_outputs()
+        if not outs:
+            messagebox.showerror("Калибровка", "Добавь колонки.")
+            return
+        if self.engine.running:
+            self.engine.stop()
+            self._set_run_btn(False)
+        self._calibrating = True
+        self.cal_status.config(text="идёт калибровка…")
+        threading.Thread(target=self._calibrate_worker, args=(mic, outs), daemon=True).start()
+
+    def _set_cal_status(self, txt):
+        self.root.after(0, lambda: self.cal_status.config(text=txt))
+
+    def _calibrate_worker(self, mic_idx, outs):
+        try:
+            ref = make_chirp(sr=SR)
+            lat = {}
+            for o in outs:
+                self._set_cal_status(f"замер: {o.name[:22]}…")
+                lat[o.id] = self._calibrate_one(mic_idx, o.idx, ref)
+            mx = max(lat.values()) if lat else 0.0
+            delays = {oid: max(0.0, (mx - l) * 1000.0) for oid, l in lat.items()}
+
+            def apply():
+                for r in self.out_rows:
+                    if r["spk"].id in delays:
+                        r["spk"].set_delay(delays[r["spk"].id])
+                        r["delay_var"].set(int(round(delays[r["spk"].id])))
+                self.cal_status.config(text="готово: задержки выставлены ✓")
+                self._calibrating = False
+            self.root.after(0, apply)
+        except Exception as e:
+            self._set_cal_status(f"ошибка: {e}")
+            self._calibrating = False
+
+    def _calibrate_one(self, mic_idx, spk_idx, ref):
+        nref = len(ref)
+        n_rec = nref + int(0.6 * SR)
+        recbuf = np.zeros(n_rec, dtype=np.float32)
+        ri = [0]
+
+        def in_cb(indata, frames, _t, _s):
+            k = min(frames, n_rec - ri[0])
+            if k > 0:
+                recbuf[ri[0]:ri[0] + k] = indata[:k, 0]
+            ri[0] += k
+
+        stereo = np.column_stack([ref, ref])
+        pi = [0]
+
+        def out_cb(outdata, frames, _t, _s):
+            k = min(frames, nref - pi[0])
+            if k > 0:
+                outdata[:k] = stereo[pi[0]:pi[0] + k]
+            if k < frames:
+                outdata[k:] = 0
+            pi[0] += k
+
+        inp = sd.InputStream(device=mic_idx, channels=1, samplerate=SR, blocksize=1024, dtype="float32", callback=in_cb)
+        out = sd.OutputStream(device=spk_idx, channels=2, samplerate=SR, blocksize=1024, dtype="float32", callback=out_cb)
+        inp.start(); out.start()
+        time.sleep(n_rec / SR + 0.15)
+        try:
+            out.stop(); inp.stop(); out.close(); inp.close()
+        except Exception:
+            pass
+        corr = fftconvolve(recbuf, ref[::-1], mode="full")
+        lag = int(np.argmax(np.abs(corr))) - (nref - 1)
+        return max(0.0, lag / SR)
 
     def _resolve_sources(self):
         ok = []
