@@ -23,6 +23,12 @@ WizardStyle=modern
 LicenseFile=LICENSE.txt
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#MyAppName}
+; Автоматически закрывать работающую копию при обновлении.
+; AppMutex совпадает с APP_MUTEX_NAME в splitter_gui.py — по нему
+; установщик надёжно обнаруживает запущенное приложение.
+AppMutex=ChannelSplitterErrariumMutex
+CloseApplications=force
+RestartApplications=no
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"

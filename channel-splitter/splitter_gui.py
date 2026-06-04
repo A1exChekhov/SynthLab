@@ -1492,7 +1492,26 @@ class App:
             self.root.destroy()
 
 
+# Имя mutex должно совпадать с AppMutex в installer.iss — по нему
+# установщик находит и закрывает работающую копию при обновлении.
+APP_MUTEX_NAME = "ChannelSplitterErrariumMutex"
+
+
+def _create_app_mutex():
+    """Создаёт глобальный именованный mutex (Windows). Держим ссылку,
+    чтобы он жил всё время работы приложения. Тихо игнорируем ошибки."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        h = ctypes.windll.kernel32.CreateMutexW(None, False, APP_MUTEX_NAME)
+        return h  # дескриптор живёт до завершения процесса
+    except Exception:
+        return None
+
+
 def main():
+    _mutex = _create_app_mutex()  # noqa: F841 — держим ссылку живой
     root = tk.Tk()
     App(root)
     root.mainloop()
