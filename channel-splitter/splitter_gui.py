@@ -101,6 +101,15 @@ def devices(want_output):
     return out
 
 
+def mic_devices():
+    """Input devices on safe host APIs only (WASAPI/MME) — WDM-KS often fails to open."""
+    out = []
+    for i, d in enumerate(sd.query_devices()):
+        if d["max_input_channels"] > 0 and hostapi_name(d["hostapi"]) in ("Windows WASAPI", "MME"):
+            out.append((i, f"{d['name']} · {hostapi_name(d['hostapi'])}"))
+    return out
+
+
 def find_default(sub, want_output):
     sub = sub.lower()
     cands = []
@@ -531,6 +540,7 @@ class App:
         self._calibrating = False
         self.out_devs = devices(True)
         self.in_devs = devices(False)
+        self.mic_devs = mic_devices()
         self._meter_disp = [0.0, 0.0]
         self._meter_hold = [0.0, 0.0]
         self._spec_disp = np.zeros(len(EQ_FREQS), dtype=np.float64)
@@ -610,10 +620,12 @@ class App:
         calf = ttk.Frame(self.root, style="Panel.TFrame")
         calf.pack(fill="x", padx=10, pady=(0, 4))
         ttk.Label(calf, text="🎤 Калибровка задержек — микрофон:", background=PANEL, foreground=ACC).pack(side="left", padx=(8, 6))
-        self.mic_cb = ttk.Combobox(calf, values=self._in_labels(), state="readonly", width=30, font=FONT)
+        self.mic_cb = ttk.Combobox(calf, values=[l for _, l in self.mic_devs], state="readonly", width=30, font=FONT)
         self.mic_cb.pack(side="left", padx=2)
-        self._select_default(self.mic_cb, self.in_devs, "Microphone")
+        self._select_mic_default()
         ttk.Button(calf, text="Калибровать", command=self.start_calibration).pack(side="left", padx=8)
+        self.auto_cal_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(calf, text="Авто", variable=self.auto_cal_var, command=self._toggle_auto_cal).pack(side="left", padx=4)
         self.cal_status = ttk.Label(calf, text="", background=PANEL, foreground=SUB)
         self.cal_status.pack(side="left", padx=6)
 
@@ -1023,6 +1035,14 @@ class App:
             r["cb"]["values"] = vals
             if sel in vals:
                 r["cb"].set(sel)
+        if hasattr(self, "mic_cb"):
+            miclabels = [l for _, l in self.mic_devs]
+            sel = self.mic_cb.get()
+            self.mic_cb["values"] = miclabels
+            if sel in miclabels:
+                self.mic_cb.set(sel)
+            elif miclabels and not sel:
+                self._select_mic_default()
 
     def _reenumerate(self):
         try:
@@ -1031,6 +1051,7 @@ class App:
             pass
         self.out_devs = devices(True)
         self.in_devs = devices(False)
+        self.mic_devs = mic_devices()
         self._dev_sig = self._device_sig()
         self._rebuild_combos()
 
@@ -1058,15 +1079,40 @@ class App:
                 self._dev_sig = sig
                 self.out_devs = out
                 self.in_devs = inp
+                self.mic_devs = mic_devices()
                 self._rebuild_combos()
                 self.status.config(text="🔄 список устройств обновлён")
         self.root.after(4000, self._device_poll)
 
     # ── Auto latency calibration (chirp + microphone + cross-correlation) ──
+    def _select_mic_default(self):
+        labels = [l for _, l in self.mic_devs]
+        for k, l in enumerate(labels):
+            if "microphone" in l.lower() or "микрофон" in l.lower():
+                self.mic_cb.current(k)
+                return
+        if labels:
+            self.mic_cb.current(0)
+
+    def _toggle_auto_cal(self):
+        # Auto re-calibration runs ONLY when this is checked. OFF by default → nothing in background.
+        if self.auto_cal_var.get():
+            self.cal_status.config(text="авто-подстройка ВКЛ (каждые 5 мин)")
+            self.root.after(300000, self._auto_cal_tick)
+        else:
+            self.cal_status.config(text="авто-подстройка выкл")
+
+    def _auto_cal_tick(self):
+        if not self.auto_cal_var.get():
+            return  # turned off — stop the loop, nothing in background
+        if not self._calibrating:
+            self.start_calibration()
+        self.root.after(300000, self._auto_cal_tick)
+
     def start_calibration(self):
         if getattr(self, "_calibrating", False):
             return
-        mic = self._combo_idx(self.mic_cb, self.in_devs)
+        mic = self._combo_idx(self.mic_cb, self.mic_devs)
         if mic is None:
             messagebox.showerror("Калибровка", "Выбери микрофон.")
             return
@@ -1074,6 +1120,7 @@ class App:
         if not outs:
             messagebox.showerror("Калибровка", "Добавь колонки.")
             return
+        self._resume_after_cal = self.engine.running
         if self.engine.running:
             self.engine.stop()
             self._set_run_btn(False)
@@ -1101,6 +1148,9 @@ class App:
                         r["delay_var"].set(int(round(delays[r["spk"].id])))
                 self.cal_status.config(text="готово: задержки выставлены ✓")
                 self._calibrating = False
+                if getattr(self, "_resume_after_cal", False):
+                    self._resume_after_cal = False
+                    self._start_playback()
             self.root.after(0, apply)
         except Exception as e:
             import traceback
@@ -1203,6 +1253,9 @@ class App:
             self._set_run_btn(False)
             self.status.config(text="остановлено")
             return
+        self._start_playback()
+
+    def _start_playback(self):
         outs = self._resolve_outputs()
         if not outs:
             messagebox.showerror("Splitter", "Добавь хотя бы одну колонку.")
