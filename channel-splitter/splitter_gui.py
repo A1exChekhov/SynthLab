@@ -627,6 +627,9 @@ class App:
         ttk.Button(calf, text="Калибровать", command=self.start_calibration).pack(side="left", padx=8)
         self.auto_cal_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(calf, text="Авто", variable=self.auto_cal_var, command=self._toggle_auto_cal).pack(side="left", padx=4)
+        ttk.Label(calf, text="Громк.", background=PANEL, foreground=SUB).pack(side="left", padx=(8, 2))
+        self.cal_vol_var = tk.DoubleVar(value=15)
+        ttk.Scale(calf, from_=2, to=100, variable=self.cal_vol_var, orient="horizontal", length=90).pack(side="left")
         self.cal_status = ttk.Label(calf, text="", background=PANEL, foreground=SUB)
         self.cal_status.pack(side="left", padx=6)
 
@@ -1125,20 +1128,21 @@ class App:
         if self.engine.running:
             self.engine.stop()
             self._set_run_btn(False)
+        amp = max(0.02, min(0.4, self.cal_vol_var.get() / 100.0 * 0.4))
         self._calibrating = True
         self.cal_status.config(text="идёт калибровка…")
-        threading.Thread(target=self._calibrate_worker, args=(mic, outs), daemon=True).start()
+        threading.Thread(target=self._calibrate_worker, args=(mic, outs, amp), daemon=True).start()
 
     def _set_cal_status(self, txt):
         self.root.after(0, lambda: self.cal_status.config(text=txt))
 
-    def _calibrate_worker(self, mic_idx, outs):
+    def _calibrate_worker(self, mic_idx, outs, amp=0.16):
         try:
             time.sleep(0.4)  # let devices settle after the engine stopped
             lat = {}
             for o in outs:
                 self._set_cal_status(f"замер: {o.name[:22]}…")
-                lat[o.id] = self._calibrate_one(mic_idx, o.idx)
+                lat[o.id] = self._calibrate_one(mic_idx, o.idx, amp)
             mx = max(lat.values()) if lat else 0.0
             delays = {oid: max(0.0, (mx - l) * 1000.0) for oid, l in lat.items()}
 
@@ -1165,7 +1169,7 @@ class App:
             self.root.after(0, lambda: messagebox.showerror("Калибровка", msg))
             self._calibrating = False
 
-    def _calibrate_one(self, mic_idx, spk_idx):
+    def _calibrate_one(self, mic_idx, spk_idx, amp=0.16):
         # Use each device's NATIVE sample rate (mics/BT speakers vary) to avoid open errors.
         try:
             spk_sr = int(sd.query_devices(spk_idx).get("default_samplerate") or SR)
@@ -1176,8 +1180,8 @@ class App:
         except Exception:
             mic_sr = SR
 
-        play_ref = make_chirp(sr=spk_sr)
-        corr_ref = make_chirp(sr=mic_sr)
+        play_ref = make_chirp(sr=spk_sr, amp=amp)
+        corr_ref = make_chirp(sr=mic_sr, amp=amp)
         nplay, ncorr = len(play_ref), len(corr_ref)
         rec_secs = ncorr / mic_sr + 0.6
         n_rec = int(rec_secs * mic_sr)
