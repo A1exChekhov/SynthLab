@@ -35,14 +35,15 @@ except Exception:
     HAVE_LOOPBACK = False
 
 
-def make_chirp(dur=1.2, f0=80.0, f1=15000.0, sr=48000, amp=0.5):
-    """Log sweep (chirp) for latency calibration — unique, robust against room noise."""
+def make_chirp(dur=1.0, f0=120.0, f1=8000.0, sr=48000, amp=0.16):
+    """Gentle log sweep (chirp) for latency calibration — quiet & non-piercing,
+    still unique enough for robust cross-correlation against room noise."""
     n = int(dur * sr)
     t = np.arange(n) / sr
     k = (f1 / f0) ** (1.0 / dur)
     phase = 2 * np.pi * f0 * ((k ** t - 1) / np.log(k))
     sig = np.sin(phase).astype(np.float32)
-    fade = max(1, int(0.01 * sr))
+    fade = max(1, int(0.04 * sr))   # 40 ms fades — no harsh clicks
     w = np.ones(n, dtype=np.float32)
     w[:fade] = np.linspace(0, 1, fade)
     w[-fade:] = np.linspace(1, 0, fade)
