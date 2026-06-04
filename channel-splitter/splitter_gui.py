@@ -627,11 +627,8 @@ class App:
         ttk.Button(calf, text="Калибровать", command=self.start_calibration).pack(side="left", padx=8)
         self.auto_cal_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(calf, text="Авто", variable=self.auto_cal_var, command=self._toggle_auto_cal).pack(side="left", padx=4)
-        ttk.Label(calf, text="Громк.", background=PANEL, foreground=SUB).pack(side="left", padx=(8, 2))
-        self.cal_vol_var = tk.DoubleVar(value=15)
-        ttk.Scale(calf, from_=2, to=100, variable=self.cal_vol_var, orient="horizontal", length=90).pack(side="left")
-        self.cal_status = ttk.Label(calf, text="", background=PANEL, foreground=SUB)
-        self.cal_status.pack(side="left", padx=6)
+        self.cal_status = ttk.Label(calf, text="результат калибровки появится здесь", background=PANEL, foreground=SUB)
+        self.cal_status.pack(side="left", padx=10)
 
         # ── Sources ──
         srchead = ttk.Frame(self.root)
@@ -1128,7 +1125,7 @@ class App:
         if self.engine.running:
             self.engine.stop()
             self._set_run_btn(False)
-        amp = max(0.02, min(0.4, self.cal_vol_var.get() / 100.0 * 0.4))
+        amp = 0.16
         self._calibrating = True
         self.cal_status.config(text="идёт калибровка…")
         threading.Thread(target=self._calibrate_worker, args=(mic, outs, amp), daemon=True).start()
@@ -1137,33 +1134,117 @@ class App:
         self.root.after(0, lambda: self.cal_status.config(text=txt))
 
     def _calibrate_worker(self, mic_idx, outs, amp=0.16):
+        inp = None
+        out_streams = []
         try:
-            time.sleep(0.4)  # let devices settle after the engine stopped
-            # assign each speaker its own log-spaced frequency band (distinct, distinguishable)
+            time.sleep(0.3)  # devices settle after the engine stopped
+            try:
+                mic_sr = int(sd.query_devices(mic_idx).get("default_samplerate") or SR)
+            except Exception:
+                mic_sr = SR
             m = len(outs)
             lo, hi = 150.0, 7000.0
             edges = [lo * (hi / lo) ** (j / max(1, m)) for j in range(m + 1)]
-            lat = {}
+
+            chirp_secs = 1.0
+            slot = chirp_secs + 0.9                    # per-speaker window (chirp + latency/air margin)
+            n_rec = int((m * slot + 1.2) * mic_sr)
+            recbuf = np.zeros(n_rec, dtype=np.float32)
+            ri = [0]
+
+            def in_cb(indata, frames, _t, _s):
+                k = min(frames, n_rec - ri[0])
+                if k > 0:
+                    recbuf[ri[0]:ri[0] + k] = indata[:k, 0]
+                ri[0] += k
+
+            # pre-open one output stream per speaker (warm => steady-state latency, no cold-start jitter)
+            states = []
+
+            def make_cb(st):
+                def cb(outdata, frames, _t, _s):
+                    if st["play"]:
+                        ch = st["chirp"]; n = st["n"]; k = min(frames, n - st["pi"])
+                        if k > 0:
+                            outdata[:k] = ch[st["pi"]:st["pi"] + k]
+                        if k < frames:
+                            outdata[k:] = 0
+                        st["pi"] += k
+                        if st["pi"] >= n:
+                            st["play"] = False
+                    else:
+                        outdata.fill(0)
+                return cb
+
             for i, o in enumerate(outs):
-                f0 = edges[i]
-                f1 = max(edges[i + 1], f0 * 2.0)
-                self._set_cal_status(f"замер: {o.name[:18]} ({int(f0)}–{int(f1)} Гц)…")
-                lat[o.id] = self._calibrate_one(mic_idx, o.idx, amp, f0, f1)
+                f0 = edges[i]; f1 = max(edges[i + 1], f0 * 2.0)
+                try:
+                    spk_sr = int(sd.query_devices(o.idx).get("default_samplerate") or SR)
+                except Exception:
+                    spk_sr = SR
+                chirp = make_chirp(dur=chirp_secs, sr=spk_sr, amp=amp, f0=f0, f1=f1)
+                st = {"play": False, "pi": 0, "chirp": np.column_stack([chirp, chirp]), "n": len(chirp),
+                      "f0": f0, "f1": f1, "spk": o}
+                states.append(st)
+                out_streams.append(sd.OutputStream(device=o.idx, channels=2, samplerate=spk_sr,
+                                                   blocksize=1024, dtype="float32", callback=make_cb(st)))
+
+            inp = sd.InputStream(device=mic_idx, channels=1, samplerate=mic_sr, blocksize=1024, dtype="float32", callback=in_cb)
+            inp.start()
+            for os_ in out_streams:
+                os_.start()
+            time.sleep(0.6)  # warm up
+
+            lat = {}
+            for o, st in zip(outs, states):
+                self._set_cal_status(f"замер: {o.name[:18]} ({int(st['f0'])}–{int(st['f1'])} Гц)…")
+                corr_ref = make_chirp(dur=chirp_secs, sr=mic_sr, amp=1.0, f0=st["f0"], f1=st["f1"])
+                cmd = ri[0]                # recording position at the trigger moment
+                st["pi"] = 0; st["play"] = True
+                time.sleep(slot)
+                seg = recbuf[cmd:min(ri[0], n_rec)]
+                if seg.size >= len(corr_ref):
+                    corr = fftconvolve(seg, corr_ref[::-1], mode="full")
+                    peak = int(np.argmax(np.abs(corr))) - (len(corr_ref) - 1)
+                    lat[o.id] = max(0.0, peak / mic_sr)
+                else:
+                    lat[o.id] = 0.0
+
+            try:
+                inp.stop(); inp.close()
+            except Exception:
+                pass
+            for os_ in out_streams:
+                try:
+                    os_.stop(); os_.close()
+                except Exception:
+                    pass
+
             mx = max(lat.values()) if lat else 0.0
             delays = {oid: max(0.0, (mx - l) * 1000.0) for oid, l in lat.items()}
 
             def apply():
+                parts = []
                 for r in self.out_rows:
                     if r["spk"].id in delays:
-                        r["spk"].set_delay(delays[r["spk"].id])
-                        r["delay_var"].set(int(round(delays[r["spk"].id])))
-                self.cal_status.config(text="готово: задержки выставлены ✓")
+                        ms = int(round(delays[r["spk"].id]))
+                        r["spk"].set_delay(ms)
+                        r["delay_var"].set(ms)
+                        nm = r["spk"].name.split(" (")[0][:10]
+                        parts.append(f"{nm}: {ms}мс")
+                self.cal_status.config(text=("✓ " + "   ".join(parts)) if parts else "✓ готово")
                 self._calibrating = False
                 if getattr(self, "_resume_after_cal", False):
                     self._resume_after_cal = False
                     self._start_playback()
             self.root.after(0, apply)
         except Exception as e:
+            for st in ([inp] + out_streams):
+                try:
+                    if st is not None:
+                        st.stop(); st.close()
+                except Exception:
+                    pass
             import traceback
             try:
                 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calib_error.log"), "w", encoding="utf-8") as fh:
