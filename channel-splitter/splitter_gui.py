@@ -514,7 +514,9 @@ class App:
         root.update_idletasks()
         root.geometry(f"760x{root.winfo_reqheight() + 4}")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self._dev_sig = self._device_sig()
         self._tick()
+        self.root.after(4000, self._device_poll)
 
     def _style(self):
         s = ttk.Style()
@@ -955,23 +957,62 @@ class App:
         else:
             self.start_btn.config(text="○ OFF", bg=PANEL, fg=SUB)
 
+    def _device_sig(self):
+        return tuple(l for _, l in self.out_devs) + ("|",) + tuple(l for _, l in self.in_devs)
+
+    def _rebuild_combos(self):
+        # update combobox lists, preserving each selection BY NAME (indices change after re-init)
+        outlabels = self._out_labels()
+        for r in self.out_rows:
+            sel = r["cb"].get()
+            r["cb"]["values"] = outlabels
+            if sel in outlabels:
+                r["cb"].set(sel)
+        inlabels = self._in_labels()
+        lbnames = loopback_speakers()
+        for r in self.src_rows:
+            sel = r["cb"].get()
+            vals = lbnames if r.get("loopback") else inlabels
+            r["cb"]["values"] = vals
+            if sel in vals:
+                r["cb"].set(sel)
+
+    def _reenumerate(self):
+        try:
+            refresh_portaudio()   # PortAudio re-inits to see hot-plugged (Bluetooth) devices
+        except Exception:
+            pass
+        self.out_devs = devices(True)
+        self.in_devs = devices(False)
+        self._dev_sig = self._device_sig()
+        self._rebuild_combos()
+
     def refresh_devices(self):
         # Stop streams first — terminating PortAudio with open streams hangs the app
         if self.engine.running:
             self.engine.stop()
             self._set_run_btn(False)
-            self.status.config(text="остановлено")
-        try:
-            refresh_portaudio()
-        except Exception:
-            pass
-        self.out_devs = devices(True)
-        self.in_devs = devices(False)
-        for r in self.out_rows:
-            r["cb"]["values"] = self._out_labels()
-        for r in self.src_rows:
-            r["cb"]["values"] = self._in_labels()
+        self._reenumerate()
         self.status.config(text="устройства обновлены")
+
+    def _device_poll(self):
+        # Auto-detect hot-plugged devices (Bluetooth) without restarting the app.
+        # PortAudio only sees new devices after re-init, so we re-init while stopped.
+        if not self.engine.running:
+            try:
+                refresh_portaudio()
+            except Exception:
+                pass
+            out = devices(True)
+            inp = devices(False)
+            sig = tuple(l for _, l in out) + ("|",) + tuple(l for _, l in inp)
+            if sig != getattr(self, "_dev_sig", None):
+                self._dev_sig = sig
+                self.out_devs = out
+                self.in_devs = inp
+                self._rebuild_combos()
+                self.status.config(text="🔄 список устройств обновлён")
+        self.root.after(4000, self._device_poll)
 
     def _resolve_sources(self):
         ok = []
