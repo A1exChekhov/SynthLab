@@ -60,7 +60,7 @@
   .by b{color:var(--amber);font-weight:400}
 
   /* ===== Модуль-плеер (табло «сейчас играет») ===== */
-  #mod-player .pbody{padding:8px 28px 12px}
+  #mod-player .pbody{padding:5px 30px 8px}
   .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
   .screen{position:relative;background:linear-gradient(180deg,#070a0b,#04070a);border:1px solid #000;border-radius:3px;
     box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025);padding:9px 16px;overflow:hidden}
@@ -77,13 +77,13 @@
   .prog .bar{flex:1;height:4px;border-radius:2px;background:#0a0d0f;border:1px solid #000;overflow:hidden;box-shadow:inset 0 1px 2px #000}
   .prog .bar i{display:block;height:100%;width:38%;background:linear-gradient(90deg,#6e5526,var(--amber))}
   .prog .t{font-family:var(--led);color:var(--amber);font-size:12px;text-shadow:0 0 6px rgba(232,176,75,.5)}
-  .params{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-content:center;
+  .params{display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;align-content:center;
     background:linear-gradient(180deg,#0a0c0e,#070809);border:1px solid #000;border-radius:3px;
-    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);padding:10px 14px}
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);padding:7px 12px}
   .chip{display:flex;align-items:baseline;justify-content:space-between;
-    font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--sub)}
-  .chip b{font-family:var(--led);font-weight:400;color:var(--amber);font-size:12px;letter-spacing:.02em;
-    text-shadow:0 0 6px rgba(232,176,75,.45)}
+    font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--sub)}
+  .chip b{font-family:var(--led);font-weight:400;color:#3dff90;font-size:11px;letter-spacing:.02em;
+    text-shadow:0 0 6px rgba(61,255,144,.45)}
   .player-brand{position:absolute;top:11px;right:74px;font-family:var(--cond);font-weight:300;font-size:9px;
     letter-spacing:.26em;text-transform:uppercase;color:var(--sub)}
   .player-brand b{color:var(--amber);font-weight:400}
@@ -105,7 +105,7 @@
   .stack>section>.face{width:100%;height:100%}
   /* порядок в гибкой стойке (половинные встают парами) */
   #mod-player{order:1}#mod-src{order:2}#mod-out{order:3}#mod-eq{order:4}#mod-fx{order:5}#mod-viz{order:6}
-  .phead{display:flex;align-items:center;justify-content:space-between;padding:11px 72px 11px 28px;
+  .phead{display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 64px 0 26px;
     border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
   .phead h3{margin:0;font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg)}
   /* hi-end фейсплейт-маркировка: марка · модель · функция */
@@ -116,13 +116,13 @@
   .marque::before{content:"◆";color:var(--amber);font-size:7px;text-shadow:0 0 5px rgba(232,176,75,.6)}
   .model{font-family:var(--led);font-size:12px;letter-spacing:.04em;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.45);white-space:nowrap}
   .fn{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .pbody{padding:4px 28px}
+  .pbody{padding:4px 30px}
   .actions{display:flex;gap:8px}
 
   /* ===== Кнопки: нейтральные ч/б, 3D, одинакового размера ===== */
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
-    height:32px;min-width:130px;padding:0 16px;border-radius:2px;border:1px solid #000;cursor:pointer;
-    font-family:var(--cond);font-weight:400;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:#c4c7c2;
+    height:27px;min-width:118px;padding:0 14px;border-radius:2px;border:1px solid #000;cursor:pointer;
+    font-family:var(--cond);font-weight:400;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#c4c7c2;
     background:linear-gradient(180deg,#2a2e33,#191b1e);
     box-shadow:inset 0 1px 0 rgba(255,255,255,.11),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6);
     transition:background .12s,color .12s,box-shadow .08s,transform .06s}
@@ -140,8 +140,8 @@
      на одинаковом расстоянии от краёв и выровнены строго друг над другом во всех
      блоках. Если в ряду нет элемента (напр. нет роли у источника) — ставится пустая
      ячейка-placeholder, а не меняется сетка. */
-  .row{display:grid;grid-template-columns:minmax(130px,1.5fr) 196px minmax(70px,1.2fr) minmax(90px,1.5fr) 58px 30px;
-    gap:14px;align-items:center;height:60px;border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
+  .row{display:grid;grid-template-columns:minmax(130px,1.5fr) 196px minmax(70px,1.2fr) minmax(90px,1.5fr) 58px 26px;
+    gap:14px;align-items:center;height:58px;border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
   .rrm{min-width:0;width:28px;height:28px;padding:0;font-size:12px;letter-spacing:0;color:#8a8d88}
   .rrm:hover{color:#fff;border-color:#ee5a4a;background:rgba(238,90,74,.16)}
   .row:last-child{border-bottom:0;box-shadow:none}
@@ -150,7 +150,7 @@
   .dev .meta{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-top:2px}
 
   /* переключатель роли: нейтральные клавиши + LED активной */
-  .seg{display:inline-grid;grid-template-columns:repeat(4,1fr);width:196px;height:30px;
+  .seg{display:inline-grid;grid-template-columns:repeat(4,1fr);width:196px;height:27px;
     border:1px solid #000;border-radius:2px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 2px 3px rgba(0,0,0,.5)}
   .seg button{position:relative;appearance:none;border:0;border-left:1px solid #000;cursor:pointer;
     font-family:var(--cond);font-weight:400;font-size:11px;letter-spacing:.08em;color:var(--fg-2);
@@ -207,8 +207,8 @@
 
   /* ===== Транспорт ===== */
   .transport{display:flex;align-items:center;gap:16px;margin-top:10px;padding:14px 26px}
-  .power{display:inline-flex;align-items:center;gap:10px;height:40px;min-width:118px;padding:0 22px;border-radius:2px;cursor:pointer;border:1px solid #000;
-    font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#dadcd8;
+  .power{display:inline-flex;align-items:center;gap:9px;height:30px;min-width:106px;padding:0 18px;border-radius:2px;cursor:pointer;border:1px solid #000;
+    font-family:var(--cond);font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#dadcd8;
     background:linear-gradient(180deg,#2c3036,#191b1e);
     box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6)}
   .power:active{transform:translateY(1px)}
@@ -216,8 +216,17 @@
   .stat{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
   .master{display:flex;align-items:center;gap:12px;margin-left:6px}
   .master .fader{width:150px}
+  /* задержки + фаза на нижней панели */
+  .tdelays{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .td{display:flex;align-items:center;gap:5px}
+  .tdname{font-family:var(--cond);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-2);max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tdlbl{font-family:var(--cond);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
+  .tdval{font-family:var(--led);font-size:12px;color:var(--amber);min-width:24px;text-align:right;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .led,.val{font-variant-numeric:tabular-nums}
+  .td .ico{width:24px;height:24px;font-size:12px}
   .feature{margin-left:auto;display:flex;gap:8px}
-  .feature .btn{min-width:0;padding:0 14px}
+  .feature .btn{min-width:120px;padding:0 12px}
 
   /* ===== Выбор модулей стойки ===== */
   .chooser{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:11px 28px}
@@ -225,9 +234,9 @@
   .chip-tog{min-width:0;padding:0 12px;height:28px}
   .chip-tog .led-dot{width:6px;height:6px}
   /* eject — убрать модуль */
-  .eject,.ico{min-width:0;width:28px;height:28px;padding:0;font-size:12px;letter-spacing:0}
+  .eject,.ico{min-width:0;width:26px;height:26px;padding:0;font-size:12px;letter-spacing:0}
   /* eject во ВСЕХ модулях — в одной точке (строго одна вертикаль) */
-  .eject{position:absolute;top:10px;right:34px;z-index:5}
+  .eject{position:absolute;top:7px;right:30px;z-index:5}
 
   /* ===== Спецэффекты: 2D-пэды + регуляторы ===== */
   .fxpads{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:6px 0 2px}
@@ -334,6 +343,9 @@
     box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 5px rgba(0,0,0,.10),0 2px 3px rgba(0,0,0,.22)}
   body.theme-silver .btn:hover{color:#000;background:linear-gradient(180deg,#f6f7f4,#dcded9)}
   body.theme-silver .btn.on{color:#1d7a47;text-shadow:0 0 8px rgba(50,200,120,.55);border-color:#7fbf97}
+  body.theme-silver .power{color:#2a2c30;border:1px solid #9fa19c;
+    background:linear-gradient(180deg,#eef0ec,#d3d5d0);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 5px rgba(0,0,0,.1),0 2px 3px rgba(0,0,0,.22)}
   body.theme-silver .rrm:hover{color:#a11;border-color:#c0473b;background:rgba(192,71,59,.12)}
   /* сегменты */
   body.theme-silver .seg{border-color:#9fa19c;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 3px rgba(0,0,0,.2)}
@@ -482,6 +494,7 @@
     <div class="master"><span class="stat">Master</span>
       <div class="fader" id="master-fader"><div class="trk"></div><div class="cap"></div></div>
       <span class="led" id="master-led">100</span></div>
+    <div class="tdelays" id="transport-delays"></div>
     <div class="feature">
       <button class="btn" id="btn-devices">Devices</button>
       <button class="btn" id="btn-calib">Calibrate</button>

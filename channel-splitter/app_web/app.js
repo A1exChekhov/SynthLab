@@ -17,16 +17,18 @@ function toggleMod(id){ const m = $(id); setVis(id, m.style.display === 'none');
 window.setVis = setVis; window.toggleMod = toggleMod;
 
 /* тема: dark / silver (JVC) */
-function setTheme(t){
+function setTheme(t, persist){
   document.body.classList.toggle('theme-silver', t==='silver');
   document.querySelectorAll('#theme-seg button').forEach(b=>b.classList.toggle('on', b.dataset.t===t));
+  if(persist!==false && API) API.set_ui('theme', t);
   setTimeout(fitWindow, 60);
 }
 
 /* выбор раскладки: 1 или 2 колонки */
-function setCols(n){
+function setCols(n, persist){
   document.body.classList.toggle('cols1', n===1);
   document.querySelectorAll('#cols-seg button').forEach(b=>b.classList.toggle('on', parseInt(b.dataset.c)===n));
+  if(persist!==false && API) API.set_ui('cols', n);
   setTimeout(fitWindow, 60);
 }
 
@@ -91,11 +93,9 @@ function renderOutputs(){
     const meta=el('div','meta');
     const mute=el('span', o.mute?'mute-on':'', '◼ mute'); mute.style.cursor='pointer';
     mute.onclick=()=>{ API.set_output(o.id,'mute',!o.mute).then(refresh); };
-    const dly=el('span',null,' · dly '); const di=el('input'); di.type='number'; di.min=0; di.max=500; di.value=o.delay; di.style.width='42px'; di.style.background='#0c0d0f'; di.style.color='#9a9d98'; di.style.border='1px solid #000';
-    di.onchange=()=>API.set_output(o.id,'delay',parseFloat(di.value)||0);
     const sub=el('span', o.sub?'mute-on':'', ' · sub'); sub.style.cursor='pointer';
     sub.onclick=()=>{ API.set_output(o.id,'sub',!o.sub).then(refresh); };
-    meta.appendChild(mute); meta.appendChild(dly); meta.appendChild(di); meta.appendChild(sub);
+    meta.appendChild(mute); meta.appendChild(sub);
     col.appendChild(meta); dev.appendChild(col);
     row.appendChild(dev);
     // role seg
@@ -251,6 +251,52 @@ function renderPlayerParams(){
   rows.forEach(([k,v])=>{ const c=el('div','chip'); c.innerHTML=k+' <b>'+v+'</b>'; box.appendChild(c); });
 }
 
+function shortName(o){ return (o.device||('Out'+o.id)).split(' · ')[0].replace('Speakers ','').slice(0,11); }
+function phaseBtn(o){
+  const ph=el('button','btn ico'+(o.inv?' on':''),'Ø'); ph.title='Фаза 180° — '+shortName(o);
+  ph.onclick=()=>{ o.inv=!o.inv; ph.classList.toggle('on',o.inv); API.set_output(o.id,'inv',o.inv); };
+  return ph;
+}
+function renderTransportDelays(){
+  const box=$('transport-delays'); if(!box) return; box.innerHTML='';
+  const outs=ST.outputs;
+  if(outs.length===2){
+    // один ползунок-синхрон на 2 колонки: центр=синхронно, тянешь → задержка соседней
+    const a=outs[0], b=outs[1];
+    const wrap=el('div','td');
+    const val=el('span','tdval','0'); val.style.minWidth='64px';
+    const fader=el('div','fader'); fader.style.width='200px'; fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
+    const apply=v=>{
+      const pos=Math.round((v-0.5)*500);   // −250..+250 мс
+      if(pos>=0){ b.delay=pos; a.delay=0; val.textContent=(pos? shortName(b)+' +'+pos : '0')+' мс'; }
+      else { a.delay=-pos; b.delay=0; val.textContent=shortName(a)+' +'+(-pos)+' мс'; }
+      API.set_output(a.id,'delay',a.delay); API.set_output(b.id,'delay',b.delay);
+    };
+    const initPos=(b.delay>0? b.delay : -(a.delay||0));
+    const gv=()=>(initPos/500+0.5); gv.def=0.5;
+    bindFader(fader, gv, apply); apply(initPos/500+0.5);
+    wrap.appendChild(el('span','tdlbl','СИНХРОН'));
+    wrap.appendChild(phaseBtn(a)); wrap.appendChild(el('span','tdname',shortName(a)));
+    wrap.appendChild(fader);
+    wrap.appendChild(el('span','tdname',shortName(b))); wrap.appendChild(phaseBtn(b));
+    wrap.appendChild(val);
+    box.appendChild(wrap);
+    return;
+  }
+  outs.forEach(o=>{
+    const wrap=el('div','td');
+    const nm=el('span','tdname', shortName(o));
+    const val=el('span','tdval', String(Math.round(o.delay)));
+    const fader=el('div','fader'); fader.style.width='130px'; fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
+    const gv=()=>o.delay/250; gv.def=0;
+    bindFader(fader, gv, v=>{ o.delay=Math.round(v*250); val.textContent=o.delay; API.set_output(o.id,'delay',o.delay); });
+    wrap.appendChild(nm); wrap.appendChild(el('span','tdlbl','dly'));
+    wrap.appendChild(fader); wrap.appendChild(val); wrap.appendChild(el('span','tdlbl','мс'));
+    wrap.appendChild(phaseBtn(o));
+    box.appendChild(wrap);
+  });
+}
+
 function renderTransport(){
   const run=ST.running;
   $('power-led').classList.toggle('on',run);
@@ -262,6 +308,7 @@ function renderTransport(){
     bindFader(mf, gv, v=>{ ST.master=v*1.5; $('master-led').textContent=Math.round(ST.master*100); API.set_master(ST.master); });
   } else if(mf){ mf.querySelector('.cap').style.left=pct(ST.master/1.5)+'%'; }
   $('master-led').textContent=Math.round(ST.master*100);
+  renderTransportDelays();
 }
 
 function renderVizColor(){
@@ -384,13 +431,20 @@ function renderCalibResults(items){
   const box=$('calib-rows'); box.innerHTML='';
   if(!items.length){ box.appendChild(el('div',null,'нет данных')); return; }
   items.forEach(it=>{
-    const r=el('div'); r.style.display='flex'; r.style.alignItems='center'; r.style.gap='10px';
-    const nm=el('div',null,it.name); nm.style.flex='1'; nm.style.fontFamily='var(--cond)'; nm.style.fontSize='12px'; nm.style.letterSpacing='.04em';
-    const inp=el('input'); inp.type='number'; inp.min=0; inp.max=500; inp.step=1; inp.value=it.delay;
-    inp.style.cssText='width:74px;background:#0c0d0f;color:var(--amber);border:1px solid #000;border-radius:3px;padding:5px 8px;font-family:var(--led);font-size:13px;color-scheme:dark';
-    inp.oninput=()=>API.set_output(it.id,'delay',parseFloat(inp.value)||0);
-    const u=el('span',null,'мс'); u.style.color='var(--sub)'; u.style.fontSize='10px'; u.style.letterSpacing='.16em';
-    r.appendChild(nm); r.appendChild(inp); r.appendChild(u); box.appendChild(r);
+    const r=el('div'); r.style.cssText='display:flex;align-items:center;gap:10px';
+    const nm=el('div',null,it.name); nm.style.cssText='width:160px;min-width:0;font-family:var(--cond);font-size:12px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    const dec=el('button','btn ico','−'); dec.title='−1 мс';
+    const fader=el('div','fader'); fader.style.flex='1'; fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
+    const inc=el('button','btn ico','+'); inc.title='+1 мс';
+    const val=el('span','led',String(it.delay)); val.style.cssText='min-width:42px;text-align:right';
+    const fobj={place:null};
+    const apply=v=>{ v=Math.max(0,Math.min(250,Math.round(v))); it.delay=v; val.textContent=v; if(fobj.place)fobj.place(v/250); API.set_output(it.id,'delay',v); };
+    const gv=()=>it.delay/250; gv.def=0;
+    const f=bindFader(fader, gv, v=>apply(v*250)); fobj.place=f.place;
+    dec.onclick=()=>apply(it.delay-1);
+    inc.onclick=()=>apply(it.delay+1);
+    r.appendChild(nm); r.appendChild(dec); r.appendChild(fader); r.appendChild(inc); r.appendChild(val); r.appendChild(el('span',null,'мс'));
+    box.appendChild(r);
   });
 }
 
@@ -415,7 +469,7 @@ function openPresets(){
 function boot(){
   API = window.pywebview.api;
   wire();
-  refresh().then(()=>{ renderChooser(); });
+  refresh().then(()=>{ renderChooser(); const u=(ST&&ST.ui)||{}; setTheme(u.theme||'dark', false); setCols(u.cols||2, false); });
   setInterval(meterLoop, 50);
 }
 if(window.pywebview && window.pywebview.api){ boot(); }

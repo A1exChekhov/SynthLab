@@ -974,6 +974,12 @@ class GPUVisualizer:
     def stop(self):
         self._stop = True
 
+    def next_preset(self):
+        self._preset = (self._preset + 1) % 6   # читается циклом рендера вживую
+
+    def is_open(self):
+        return self.thread is not None and self.thread.is_alive()
+
     def _toggle_fs(self, glfw, win, mon_index, force=False):
         if self._fs and not force:
             glfw.set_window_monitor(win, None, self._wx, self._wy, self._ww, self._wh, 0)

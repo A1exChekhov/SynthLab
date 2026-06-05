@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 import numpy as np
 import webview
@@ -39,20 +40,112 @@ def _now_playing():
 class AppCore:
     ROLE = {"L": (-1.0, False), "R": (1.0, False), "Mono": (0.0, False), "L/R": (0.0, True)}
 
+    FX_KEYS = ["spatial_on", "spatial", "threeD_on", "threeD", "surround_on", "surround",
+               "monobass_on", "monobass_hz", "pos_on", "pan", "distance",
+               "tone_on", "tilt", "drive", "reverb_on", "reverb_size", "reverb_mix",
+               "comp_on", "comp_thresh", "bass_on", "bass"]
+
     def __init__(self):
         self.engine = core.Engine()
         self.outputs = []
         self.sources = []
         self.gpu = None
         self._win = None
+        self.ui = {"theme": "dark", "cols": 2}
+        self._last_save = 0.0
         self.refresh_devices()
-        # defaults
-        self._add_output("Bob", "L")
-        self._add_output("JBL", "R")
-        if core.HAVE_LOOPBACK:
-            self.add_loopback()
-        else:
-            self.add_source()
+        if not self._load_settings():
+            self.engine.master = 0.6   # безопасная стартовая громкость (не 100%)
+            self._add_output("Bob", "L")
+            self._add_output("JBL", "R")
+            if core.HAVE_LOOPBACK:
+                self.add_loopback()
+            else:
+                self.add_source()
+            self.save_settings()
+
+    # ── persistence: запоминаем и восстанавливаем ВСЕ регулировки ──
+    def _settings_path(self):
+        return os.path.join(core.user_data_dir(), "settings.json")
+
+    def _load_settings(self):
+        try:
+            with open(self._settings_path(), "r", encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            return False
+        e = self.engine
+        e.master = float(d.get("master", 1.0))
+        eq = d.get("eq", {})
+        e.eq_on = bool(eq.get("on", False))
+        g = eq.get("gains")
+        if g and len(g) == len(e.eq_gains):
+            e.eq_gains = [float(x) for x in g]
+        for k, v in (d.get("fx", {}) or {}).items():
+            try:
+                setattr(e, k, v)
+            except Exception:
+                pass
+        e.build_eq(); e.build_monobass(); e.set_distance(e.distance)
+        if isinstance(d.get("viz"), dict):
+            e.viz_cfg.update(d["viz"])
+        if isinstance(d.get("ui"), dict):
+            self.ui.update(d["ui"])
+        self.outputs = []
+        for od in d.get("outputs", []):
+            spk = core.OutputSpk(0, "")
+            bal, st = self.ROLE.get(od.get("role", "L"), (-1.0, False))
+            spk.bal = bal; spk.stereo = st
+            spk.label = od.get("device", "")
+            spk.vol = float(od.get("vol", 1.0)); spk.mute = bool(od.get("mute", False))
+            spk.is_sub = bool(od.get("sub", False)); spk.xover = float(od.get("xover", 120.0))
+            spk.build_filter()
+            spk.set_delay(float(od.get("delay", 0.0))); spk.inv = bool(od.get("inv", False))
+            self.outputs.append(spk)
+        self.sources = []
+        for s_ in d.get("sources", []):
+            s = core.Source(0, "System Audio" if s_.get("loopback") else "")
+            s.loopback = bool(s_.get("loopback", False)); s.lb_name = s_.get("lb_name", "")
+            s.label = s_.get("device", "")
+            s.vol = float(s_.get("vol", 1.0)); s.bal = float(s_.get("bal", 0.0))
+            s.mute = bool(s_.get("mute", False)); s.inv = bool(s_.get("inv", False))
+            self.sources.append(s)
+        if not self.outputs:
+            self._add_output("Bob", "L"); self._add_output("JBL", "R")
+        return True
+
+    def save_settings(self):
+        e = self.engine
+        d = {
+            "master": e.master,
+            "eq": {"on": e.eq_on, "gains": list(e.eq_gains)},
+            "fx": {k: getattr(e, k) for k in self.FX_KEYS},
+            "viz": dict(e.viz_cfg),
+            "ui": dict(self.ui),
+            "outputs": [{"device": getattr(o, "label", ""), "role": self._role(o),
+                         "vol": o.vol, "mute": o.mute, "sub": o.is_sub, "xover": o.xover,
+                         "delay": o.delay_ms, "inv": o.inv} for o in self.outputs],
+            "sources": [{"loopback": s.loopback, "device": getattr(s, "label", ""),
+                         "lb_name": s.lb_name, "vol": s.vol, "bal": s.bal,
+                         "mute": s.mute, "inv": s.inv} for s in self.sources],
+        }
+        try:
+            with open(self._settings_path(), "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _save(self):
+        """Троттлинг частых изменений (drag ползунков)."""
+        now = time.perf_counter()
+        if now - self._last_save < 0.4:
+            return
+        self._last_save = now
+        self.save_settings()
+
+    def set_ui(self, key, value):
+        self.ui[key] = value
+        self._save()
 
     # ── devices ──
     def refresh_devices(self):
@@ -95,10 +188,10 @@ class AppCore:
         return spk
 
     def add_output(self):
-        self._add_output(role="L"); self._reapply()
+        self._add_output(role="L"); self._reapply(); self._save()
 
     def remove_output(self, oid):
-        self.outputs = [o for o in self.outputs if o.id != oid]; self._reapply()
+        self.outputs = [o for o in self.outputs if o.id != oid]; self._reapply(); self._save()
 
     def set_output(self, oid, field, value):
         o = next((x for x in self.outputs if x.id == oid), None)
@@ -121,21 +214,22 @@ class AppCore:
             o.inv = bool(value)
         if struct:
             self._reapply()
+        self._save()
 
     # ── sources ──
     def add_source(self):
         s = core.Source(0, "")
         s.label = self.in_devs[0][1] if self.in_devs else ""
-        self.sources.append(s); self._reapply()
+        self.sources.append(s); self._reapply(); self._save()
 
     def add_loopback(self):
         s = core.Source(0, "System Audio")
         s.loopback = True
         s.lb_name = ""   # "" → захват устройства Windows по умолчанию (что реально играет)
-        self.sources.append(s); self._reapply()
+        self.sources.append(s); self._reapply(); self._save()
 
     def remove_source(self, sid):
-        self.sources = [s for s in self.sources if s.id != sid]; self._reapply()
+        self.sources = [s for s in self.sources if s.id != sid]; self._reapply(); self._save()
 
     def set_source(self, sid, field, value):
         s = next((x for x in self.sources if x.id == sid), None)
@@ -156,6 +250,7 @@ class AppCore:
             s.inv = bool(value)
         if struct:
             self._reapply()
+        self._save()
 
     # ── engine run ──
     def _resolve(self):
@@ -198,13 +293,13 @@ class AppCore:
 
     # ── EQ ──
     def set_eq(self, i, g):
-        self.engine.eq_gains[int(i)] = float(g); self.engine.build_eq()
+        self.engine.eq_gains[int(i)] = float(g); self.engine.build_eq(); self._save()
 
     def set_eq_on(self, on):
-        self.engine.eq_on = bool(on); self.engine.build_eq()
+        self.engine.eq_on = bool(on); self.engine.build_eq(); self._save()
 
     def eq_reset(self):
-        self.engine.eq_gains = [0.0] * len(core.EQ_FREQS); self.engine.build_eq()
+        self.engine.eq_gains = [0.0] * len(core.EQ_FREQS); self.engine.build_eq(); self._save()
 
     def _preset_path(self):
         return os.path.join(core.user_data_dir(), "eq_presets.json")
@@ -251,7 +346,7 @@ class AppCore:
                   "surround_on", "surround"):
             if k in p:
                 setattr(e, k, p[k])
-        e.build_eq(); e.build_monobass(); e.set_distance(e.distance)
+        e.build_eq(); e.build_monobass(); e.set_distance(e.distance); self._save()
 
     def eq_delete(self, name):
         d = self._load_presets()
@@ -276,9 +371,10 @@ class AppCore:
             setattr(e, key, value)
         else:
             setattr(e, key, float(value))
+        self._save()
 
     def set_master(self, v):
-        self.engine.master = float(v)
+        self.engine.master = float(v); self._save()
 
     def resize_window(self, w, h):
         """Подогнать окно ровно под содержимое (вызывается из UI после рендера).
@@ -295,11 +391,15 @@ class AppCore:
             return False
         if self.gpu is None:
             self.gpu = core.GPUVisualizer(self.engine)
-        self.gpu.start()
+        if self.gpu.is_open():
+            self.gpu.next_preset()   # уже открыто → повторное нажатие меняет режим
+        else:
+            self.gpu.start()
         return True
 
     def set_viz(self, key, value):
         self.engine.viz_cfg[key] = value if isinstance(value, (bool, str)) else float(value)
+        self._save()
 
     def calibrate(self, mic_label=None):
         """Авто-выравнивание задержек по микрофону: chirp на каждый выход →
@@ -324,7 +424,7 @@ class AppCore:
             self._start()
         return {"msg": msg, "items": items}
 
-    def _calibrate(self, mic_idx, outs, amp=0.16):
+    def _calibrate(self, mic_idx, outs, amp=0.10):
         import time as _t
         import sounddevice as sd
         _t.sleep(0.3)
@@ -416,7 +516,7 @@ class AppCore:
         for o in outs:
             ms = int(round(max(0.0, (mx - lat.get(o.id, 0.0)) * 1000.0)))
             o.set_delay(ms)
-            items.append({"id": o.id, "name": getattr(o, "label", "").split(" (")[0][:20], "delay": ms})
+            items.append({"id": o.id, "name": getattr(o, "label", "").split(" · ")[0][:26], "delay": ms})
         return items
 
     # ── state / meters ──
@@ -453,6 +553,7 @@ class AppCore:
                    "reverb_on": e.reverb_on, "reverb_size": e.reverb_size, "reverb_mix": e.reverb_mix,
                    "comp_on": e.comp_on, "comp_thresh": e.comp_thresh},
             "viz": dict(e.viz_cfg),
+            "ui": dict(self.ui),
             "np": {"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0", "kbps": "—"},
         }
 
@@ -490,6 +591,10 @@ def main():
     core_app._win = win
 
     def on_closed():
+        try:
+            core_app.save_settings()   # финальное сохранение всех регулировок
+        except Exception:
+            pass
         try:
             core_app.engine.stop()
         except Exception:
