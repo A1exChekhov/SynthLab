@@ -17,21 +17,53 @@ def _asset(*parts):
     return os.path.join(base, "app_web", *parts)
 
 
+def _mmss(sec):
+    sec = max(0, int(sec))
+    return "%d:%02d" % (sec // 60, sec % 60)
+
+
 def _now_playing():
-    """Best-effort Windows 'now playing' via Media Session API (winsdk). Optional."""
+    """Best-effort Windows 'now playing' via Media Session API (winsdk):
+    название, исполнитель, позиция/длительность."""
     try:
         from winsdk.windows.media.control import \
             GlobalSystemMediaTransportControlsSessionManager as MM
         import asyncio
+
         async def go():
             mgr = await MM.request_async()
             s = mgr.get_current_session()
             if not s:
                 return None
             info = await s.try_get_media_properties_async()
+            pos = end = 0.0
+            try:
+                tl = s.get_timeline_properties()
+                pos = tl.position.total_seconds()
+                end = tl.end_time.total_seconds()
+                # позиция дана на момент last_updated_time → экстраполируем, если играет
+                try:
+                    from winsdk.windows.media.control import \
+                        GlobalSystemMediaTransportControlsSessionPlaybackStatus as PS
+                    import datetime
+                    pb = s.get_playback_info()
+                    if pb and pb.playback_status == PS.PLAYING:
+                        last = tl.last_updated_time
+                        if last:
+                            now = datetime.datetime.now(datetime.timezone.utc)
+                            d = (now - last).total_seconds()
+                            if 0 <= d < 36000:
+                                pos += d
+                    if end > 0:
+                        pos = min(pos, end)
+                except Exception:
+                    pass
+            except Exception:
+                pass
             return {"title": (info.title or "").strip(),
                     "sub": (info.artist or info.album_title or "").strip(),
-                    "source": (s.source_app_user_model_id or "").split("!")[0]}
+                    "source": (s.source_app_user_model_id or "").split("!")[0],
+                    "pos": pos, "end": end}
         return asyncio.run(go())
     except Exception:
         return None
@@ -401,6 +433,38 @@ class AppCore:
         self.engine.viz_cfg[key] = value if isinstance(value, (bool, str)) else float(value)
         self._save()
 
+    # ── управление системным плеером (Windows Media Session) ──
+    def _media_cmd(self, cmd):
+        try:
+            from winsdk.windows.media.control import \
+                GlobalSystemMediaTransportControlsSessionManager as MM
+            import asyncio
+
+            async def go():
+                mgr = await MM.request_async()
+                s = mgr.get_current_session()
+                if not s:
+                    return False
+                if cmd == "play":
+                    await s.try_toggle_play_pause_async()
+                elif cmd == "next":
+                    await s.try_skip_next_async()
+                elif cmd == "prev":
+                    await s.try_skip_previous_async()
+                return True
+            return asyncio.run(go())
+        except Exception:
+            return False
+
+    def media_playpause(self):
+        return self._media_cmd("play")
+
+    def media_next(self):
+        return self._media_cmd("next")
+
+    def media_prev(self):
+        return self._media_cmd("prev")
+
     def calibrate(self, mic_label=None):
         """Авто-выравнивание задержек по микрофону: chirp на каждый выход →
         кросс-корреляция → задержка = max(lat) - lat_i (мс) на каждый выход."""
@@ -574,7 +638,10 @@ class AppCore:
             if np_:
                 self._np_cache = np_
         np = dict(self._np_cache)
-        np.update({"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0", "kbps": "—"})
+        pos = float(np.get("pos", 0.0)); end = float(np.get("end", 0.0))
+        np["cur"] = _mmss(pos); np["total"] = _mmss(end)
+        np["posfrac"] = (pos / end) if end > 0 else 0.0
+        np.update({"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0"})
         return {"running": e.running, "outs": outs, "srcs": srcs, "spectrum": spec,
                 "bands": bands, "level": float(e.viz_level), "beat": beat, "np": np}
 

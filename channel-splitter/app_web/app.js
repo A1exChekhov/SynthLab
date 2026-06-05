@@ -347,9 +347,12 @@ function meterLoop(){
 }
 function updateNP(np){
   if($('np-title')) $('np-title').textContent = np.title || '—';
-  if($('np-sub')) $('np-sub').textContent = np.sub || '';
+  if($('np-sub')) { $('np-sub').style.display = ''; $('np-sub').textContent = np.sub || ''; }
   if($('np-src')) $('np-src').textContent = np.source ? ('Now Playing · '+np.source) : 'Now Playing';
   if($('np-led')) $('np-led').classList.toggle('on', !!np.title);
+  if($('np-cur')) $('np-cur').textContent = np.cur || '0:00';
+  if($('np-tot')) $('np-tot').textContent = np.total || '0:00';
+  if($('np-bar')) $('np-bar').style.width = Math.max(0,Math.min(100,(np.posfrac||0)*100))+'%';
   if(np.codec!==undefined){ ST.np=np; renderPlayerParams(); }
 }
 function drawViz(spec, wave, level, beat){
@@ -383,6 +386,9 @@ function wire(){
   $('btn-add-src').onclick=()=>API.add_source().then(refresh);
   $('btn-add-sys').title='Добавить системный звук (что играет ПК, loopback)';
   $('btn-add-sys').onclick=()=>API.add_loopback().then(refresh);
+  $('md-prev').onclick=()=>API.media_prev();
+  $('md-play').onclick=()=>API.media_playpause();
+  $('md-next').onclick=()=>API.media_next();
   document.querySelectorAll('#cols-seg button').forEach(b=>{ b.onclick=()=>{ setCols(parseInt(b.dataset.c)); }; });
   document.querySelectorAll('#theme-seg button').forEach(b=>{ b.onclick=()=>{ setTheme(b.dataset.t); }; });
   $('btn-eq-on').onclick=()=>{ ST.eq.on=!ST.eq.on; API.set_eq_on(ST.eq.on).then(()=>renderEQ()); };

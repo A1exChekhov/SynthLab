@@ -60,8 +60,19 @@
   .by b{color:var(--amber);font-weight:400}
 
   /* ===== Модуль-плеер (табло «сейчас играет») ===== */
+  /* транспортные клавиши по центру панели плеера — широкие, как на реальных плеерах */
+  .transport-keys{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;gap:6px;z-index:4}
+  .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:13px;letter-spacing:.05em}
+  .mkey-play{width:72px}
   #mod-player .pbody{padding:5px 30px 8px}
   .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
+  .screen{display:flex;align-items:center;gap:16px}
+  .np-main{flex:1;min-width:0}
+  .np-time{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:7px;width:128px}
+  .np-clock{font-family:var(--led);color:#3dff90;font-size:13px;text-shadow:0 0 6px rgba(61,255,144,.5);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .np-clock .t-dim{color:#2a6e48}
+  .np-time .bar{width:100%;height:4px;border-radius:2px;background:#0a0d0f;border:1px solid #000;overflow:hidden;box-shadow:inset 0 1px 2px #000}
+  .np-time .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0a3d22,#3dff90)}
   .screen{position:relative;background:linear-gradient(180deg,#070a0b,#04070a);border:1px solid #000;border-radius:3px;
     box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025);padding:9px 16px;overflow:hidden}
   .screen::after{content:"";position:absolute;inset:0;pointer-events:none;
@@ -206,7 +217,7 @@
   .band span{font-family:var(--cond);font-weight:300;font-size:10px;color:var(--sub);letter-spacing:.08em}
 
   /* ===== Транспорт ===== */
-  .transport{display:flex;align-items:center;gap:16px;margin-top:10px;padding:14px 26px}
+  .transport{display:flex;align-items:center;gap:16px;margin-top:10px;padding:0 26px;height:124px}
   .power{display:inline-flex;align-items:center;gap:9px;height:30px;min-width:106px;padding:0 18px;border-radius:2px;cursor:pointer;border:1px solid #000;
     font-family:var(--cond);font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#dadcd8;
     background:linear-gradient(180deg,#2c3036,#191b1e);
@@ -391,13 +402,23 @@
       <div class="face mod u-half">
         <div class="phead">
           <div class="fp"><span class="marque">Errarium</span><span class="model">MS-110</span><span class="fn">Media Transport</span></div>
+          <div class="transport-keys">
+            <button class="btn mkey" id="md-prev" title="Предыдущий">⏮</button>
+            <button class="btn mkey mkey-play" id="md-play" title="Плей / Пауза">⏯</button>
+            <button class="btn mkey" id="md-next" title="Следующий">⏭</button>
+          </div>
           <div class="actions"><button class="btn eject" onclick="setVis('mod-player',false)">✕</button></div></div>
         <div class="pbody player-body">
           <div class="screen">
-            <div class="np-label"><span class="led-dot on" id="np-led"></span> <span id="np-src">Now Playing</span></div>
-            <div class="np-title" id="np-title">—</div>
-            <div class="np-sub" id="np-sub"></div>
-            <div class="prog"><span class="t" id="np-cur">00:00</span><div class="bar"><i id="np-bar"></i></div><span class="t" id="np-tot">00:00</span></div>
+            <div class="np-main">
+              <div class="np-label"><span class="led-dot on" id="np-led"></span> <span id="np-src">Now Playing</span></div>
+              <div class="np-title" id="np-title">—</div>
+              <div class="np-sub" id="np-sub"></div>
+            </div>
+            <div class="np-time">
+              <div class="np-clock"><span class="t" id="np-cur">0:00</span> <span class="t-dim">/</span> <span class="t" id="np-tot">0:00</span></div>
+              <div class="bar"><i id="np-bar"></i></div>
+            </div>
           </div>
           <div class="params" id="player-params"></div>
         </div>
