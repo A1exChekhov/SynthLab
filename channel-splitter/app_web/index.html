@@ -32,7 +32,7 @@
     color:var(--fg);font-family:var(--sans);font-weight:400;font-size:13px;line-height:1.4;
     -webkit-font-smoothing:antialiased;letter-spacing:.01em;overflow:auto}
   .wrap{width:1780px;margin:0 auto;padding:24px 24px 30px}
-  body.cols1 .wrap{width:1248px}
+  body.cols1 .wrap{width:908px}
 
   .face{position:relative;background-repeat:no-repeat;background:
       radial-gradient(circle at 13px 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
@@ -65,9 +65,9 @@
   .transport-keys{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;
     align-items:center;gap:6px;z-index:4;padding:3px 6px;border-radius:5px;
     background:rgba(0,0,0,.24);box-shadow:inset 0 2px 5px rgba(0,0,0,.55),0 1px 0 var(--hi)}
-  .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:17px;letter-spacing:.05em;line-height:1}
-  .mkey-play{width:72px;font-size:18px}
-  .mkey-stop{width:36px;font-size:14px;margin-left:12px}   /* стоп = половина ширины плэй, отделён */
+  .transport-keys .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:17px;letter-spacing:.05em;line-height:1}
+  .transport-keys .mkey-play{width:72px;font-size:18px}
+  .transport-keys .mkey-stop{width:36px;font-size:14px;margin-left:12px}   /* стоп = половина ширины плэй, отделён */
   #mod-player .pbody{padding:5px 30px 8px}
   .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
   .screen{display:flex;align-items:center;gap:16px}
@@ -112,7 +112,7 @@
      • плотная упаковка заполняет пустоты. */
   .stack{display:grid;grid-template-columns:repeat(2,860px);
     grid-auto-rows:124px;grid-auto-flow:row dense;gap:12px}
-  body.cols1 .stack{grid-template-columns:1200px}
+  body.cols1 .stack{grid-template-columns:860px}
   .chooser,.transport{width:100%}
   .stack>section{min-width:0}
   .stack>section:has(.u-half){grid-row:span 1}
@@ -407,7 +407,7 @@
     <section id="mod-player">
       <div class="face mod u-half">
         <div class="phead">
-          <div class="fp"><span class="marque">Errarium</span><span class="model">MS-110</span><span class="fn">Media Transport</span></div>
+          <div class="fp"><span class="marque">Errarium</span><span class="model">MS-110</span></div>
           <div class="transport-keys">
             <button class="btn mkey" id="md-prev" title="Предыдущий">⏮</button>
             <button class="btn mkey mkey-play" id="md-play" title="Плей / Пауза">⏯</button>
