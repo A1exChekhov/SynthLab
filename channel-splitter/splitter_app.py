@@ -44,6 +44,7 @@ class AppCore:
         self.outputs = []
         self.sources = []
         self.gpu = None
+        self._win = None
         self.refresh_devices()
         # defaults
         self._add_output("Bob", "L")
@@ -55,11 +56,16 @@ class AppCore:
 
     # ── devices ──
     def refresh_devices(self):
+        was = self.engine.running
+        if was:
+            self.engine.stop()
         core.refresh_portaudio()
         self.out_devs = core.devices(True)
         self.in_devs = core.devices(False)
         self.lb = core.loopback_speakers()
         self.mic = core.mic_devices()
+        if was:
+            self._start()   # вернуть воспроизведение после пересканирования
 
     def _out_idx(self, label):
         for i, l in self.out_devs:
@@ -274,6 +280,15 @@ class AppCore:
     def set_master(self, v):
         self.engine.master = float(v)
 
+    def resize_window(self, w, h):
+        """Подогнать окно ровно под содержимое (вызывается из UI после рендера).
+        +рамка/заголовок окна Windows."""
+        try:
+            if self._win is not None:
+                self._win.resize(int(w) + 16, int(h) + 39)
+        except Exception:
+            pass
+
     # ── visualizer ──
     def open_viz(self):
         if not core.HAVE_GPU:
@@ -290,7 +305,7 @@ class AppCore:
         """Авто-выравнивание задержек по микрофону: chirp на каждый выход →
         кросс-корреляция → задержка = max(lat) - lat_i (мс) на каждый выход."""
         if not self.mic:
-            return "Микрофон не найден (нужен вход WASAPI/MME)."
+            return {"msg": "Микрофон не найден (нужен вход WASAPI/MME).", "items": []}
         mic_idx = next((i for i, l in self.mic if l == mic_label), self.mic[0][0])
         was = self.engine.running
         self.engine.stop()
@@ -299,14 +314,15 @@ class AppCore:
         if not outs:
             if was:
                 self._start()
-            return "Нет выходов для калибровки."
+            return {"msg": "Нет выходов для калибровки.", "items": []}
         try:
-            res = self._calibrate(mic_idx, outs)
+            items = self._calibrate(mic_idx, outs)
+            msg = "✓ Готово — задержки выровнены. Подстрой вручную при необходимости."
         except Exception as e:
-            res = "Ошибка калибровки: " + str(e)
+            items, msg = [], "Ошибка калибровки: " + str(e)
         if was:
             self._start()
-        return res
+        return {"msg": msg, "items": items}
 
     def _calibrate(self, mic_idx, outs, amp=0.16):
         import time as _t
@@ -321,7 +337,8 @@ class AppCore:
         edges = [lo * (hi / lo) ** (j / max(1, m)) for j in range(m + 1)]
         chirp_secs = 1.0
         slot = chirp_secs + 0.9
-        n_rec = int((m * slot + 1.2) * mic_sr)
+        REPS = 3                       # усреднение для точности
+        n_rec = int((m * REPS * slot + 1.5) * mic_sr)
         recbuf = np.zeros(n_rec, dtype=np.float32)
         ri = [0]
 
@@ -370,15 +387,20 @@ class AppCore:
         try:
             for o, st in zip(outs, states):
                 corr_ref = core.make_chirp(dur=chirp_secs, sr=mic_sr, amp=1.0, f0=st["f0"], f1=st["f1"])
-                cmd = ri[0]; st["pi"] = 0; st["play"] = True
-                _t.sleep(slot)
-                seg = recbuf[cmd:min(ri[0], n_rec)]
-                if seg.size >= len(corr_ref):
+                meas = []
+                for _r in range(REPS):
+                    cmd = ri[0]; st["pi"] = 0; st["play"] = True
+                    _t.sleep(slot)
+                    seg = recbuf[cmd:min(ri[0], n_rec)]
+                    if seg.size < len(corr_ref):
+                        continue
                     corr = np.abs(core.fftconvolve(seg, corr_ref[::-1], mode="full"))
-                    peak = int(np.argmax(corr)) - (len(corr_ref) - 1)
-                    lat[o.id] = max(0.0, peak / mic_sr)
-                else:
-                    lat[o.id] = 0.0
+                    pk = int(np.argmax(corr))
+                    ratio = float(corr[pk]) / (float(np.median(corr)) + 1e-12)
+                    val = max(0.0, (pk - (len(corr_ref) - 1)) / mic_sr)
+                    if ratio > 6.0:            # принимаем только уверенные пики
+                        meas.append(val)
+                lat[o.id] = float(np.median(meas)) if meas else 0.0
         finally:
             try:
                 inp.stop(); inp.close()
@@ -390,12 +412,12 @@ class AppCore:
                 except Exception:
                     pass
         mx = max(lat.values()) if lat else 0.0
-        parts = []
+        items = []
         for o in outs:
             ms = int(round(max(0.0, (mx - lat.get(o.id, 0.0)) * 1000.0)))
             o.set_delay(ms)
-            parts.append(getattr(o, "label", "").split(" (")[0][:10] + ": " + str(ms) + " мс")
-        return "✓ Задержки выставлены — " + "   ".join(parts)
+            items.append({"id": o.id, "name": getattr(o, "label", "").split(" (")[0][:20], "delay": ms})
+        return items
 
     # ── state / meters ──
     def _role(self, o):
@@ -462,9 +484,10 @@ def main():
         "Channel Splitter — Errarium",
         url=_asset("index.html"),
         js_api=core_app,
-        width=1200, height=920, min_size=(820, 620),
+        width=1332, height=929, min_size=(700, 480), resizable=False,
         background_color="#0b0b0c",
     )
+    core_app._win = win
 
     def on_closed():
         try:

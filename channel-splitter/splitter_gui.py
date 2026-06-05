@@ -316,6 +316,8 @@ class Engine:
         self._viz_bass_avg = 1e-4
         self.VIZ_W = 512
         self.viz_wave = np.full(self.VIZ_W, 0.5, dtype=np.float32)  # осциллограмма 0..1
+        self._ana_buf = np.zeros(4096, dtype=np.float64)            # скользящий буфер FFT
+        self._ana_win = np.hanning(4096)
         # пользовательский стиль цветомузыки (читается GPU-движком вживую)
         self.viz_cfg = {
             "color_mode": 0,    # 0=Цвет, 1=Ч/Б, 2=Монотон
@@ -479,13 +481,22 @@ class Engine:
         n = x.shape[0]
         if n < 16:
             return
-        mag = np.abs(np.fft.rfft(x * np.hanning(n))) / (n * 0.5)
-        freqs = np.fft.rfftfreq(n, 1.0 / SR)
+        # скользящий буфер → высокое разрешение по низким частотам (≈12 Гц/бин),
+        # иначе на лог-шкале низкие полосы уже бина и зияют промежутками
+        buf = self._ana_buf
+        N = buf.shape[0]
+        if n >= N:
+            buf[:] = x[-N:]
+        else:
+            buf[:-n] = buf[n:]
+            buf[-n:] = x
+        mag = np.abs(np.fft.rfft(buf * self._ana_win)) / (N * 0.5)
+        freqs = np.fft.rfftfreq(N, 1.0 / SR)
         sp = self.spectrum
         for i, (lo, hi) in enumerate(EQ_EDGES):
             m = (freqs >= lo) & (freqs < hi)
             sp[i] = (float(mag[m].mean()) * EQ_TILT[i]) if m.any() else 0.0
-        self._update_viz(x, mag, freqs)
+        self._update_viz(buf, mag, freqs)
 
     def _update_viz(self, x, mag, freqs):
         """High-resolution features for the colour-music visualizer."""
@@ -839,37 +850,61 @@ void main(){
   float r = length(c);
   float ang = atan(c.y,c.x);
   float t = time;
+  vec3 col;
 
-  // ── ВАРП предыдущего кадра ──
-  float zoom, rot, sw;
-  if(preset==0){ zoom = 1.0 - (0.018 + 0.05*bass)*warp; rot = (0.010 + 0.05*treble + 0.04*beat)*speed; sw=0.0; }
-  else if(preset==1){ zoom = 1.0 + (0.020 + 0.05*bass)*warp; rot = -(0.008 + 0.03*treble)*speed; sw=0.0; }
-  else { zoom = 1.0 - 0.010*warp; rot = 0.006*speed; sw = (0.05 + 0.25*bass)*swirl; }
-  float a2 = rot + sw*(0.5 - r);
-  float ca=cos(a2), sa=sin(a2);
-  vec2 cc = mat2(ca,-sa,sa,ca)*c*zoom;
-  cc += 0.004*warp*vec2(sin(t*0.7*speed+cc.y*6.0), cos(t*0.6*speed+cc.x*6.0));
-  vec2 w = cc; w.x/=asp; w += 0.5;
-  vec3 col = texture(prev, w).rgb * clamp(decay + 0.02*beat, 0.0, 0.999);
-
-  // ── НОВЫЕ ЭЛЕМЕНТЫ ──
-  float circR = 0.16 + (0.10*level + 0.06*beat)*react;
-  float wv = wav(fract(ang/6.2831 + 0.5));
-  float ring = circR + 0.07*wv*react;
-  float lw = 0.010*linew;
-  float scope = smoothstep(lw, 0.0, abs(r - ring)) * (0.5 + 0.8*level*react);
-
-  float m = spec(fract(ang/6.2831));
-  float ray = smoothstep(0.015*linew, 0.0, abs(r - (circR + 0.05 + 0.55*m*react))) * m * 1.4 * bursts;
-
-  vec3 add = tint(scope + ray, ang, t) * gain;
-  // вспышка ядра на бите
-  float bf = beat * smoothstep(0.22, 0.0, r) * 1.4 * bursts;
-  add += tint(bf, ang, t*2.0);
-
-  col += add;
-  col = max(col, 0.0);
-  fragColor = vec4(col, 1.0);
+  if(preset<=2){
+    // ── ЦЕНТРОВЫЕ режимы (тоннель/вихрь) ──
+    float zoom, rot, sw;
+    if(preset==0){ zoom = 1.0 - (0.018 + 0.05*bass)*warp; rot = (0.010 + 0.05*treble + 0.04*beat)*speed; sw=0.0; }
+    else if(preset==1){ zoom = 1.0 + (0.020 + 0.05*bass)*warp; rot = -(0.008 + 0.03*treble)*speed; sw=0.0; }
+    else { zoom = 1.0 - 0.010*warp; rot = 0.006*speed; sw = (0.05 + 0.25*bass)*swirl; }
+    float a2 = rot + sw*(0.5 - r);
+    float ca=cos(a2), sa=sin(a2);
+    vec2 cc = mat2(ca,-sa,sa,ca)*c*zoom;
+    cc += 0.004*warp*vec2(sin(t*0.7*speed+cc.y*6.0), cos(t*0.6*speed+cc.x*6.0));
+    vec2 w = cc; w.x/=asp; w += 0.5;
+    col = texture(prev, w).rgb * clamp(decay + 0.02*beat, 0.0, 0.999);
+    float circR = 0.16 + (0.10*level + 0.06*beat)*react;
+    float wv = wav(fract(ang/6.2831 + 0.5));
+    float scope = smoothstep(0.010*linew, 0.0, abs(r - (circR + 0.07*wv*react))) * (0.5 + 0.8*level*react);
+    float m = spec(fract(ang/6.2831));
+    float ray = smoothstep(0.015*linew, 0.0, abs(r - (circR + 0.05 + 0.55*m*react))) * m * 1.4 * bursts;
+    col += tint(scope + ray, ang, t) * gain;
+    col += tint(beat * smoothstep(0.22, 0.0, r) * 1.4 * bursts, ang, t*2.0);
+  }
+  else if(preset==3){
+    // ── ГОРИЗОНТАЛЬНЫЙ СКРОЛЛ (спектрограмма: частота↕, время→) ──
+    vec2 w = uv; w.x -= (0.004 + 0.012*speed)*warp;
+    w.y += 0.0025*warp*sin(t*0.5 + uv.y*10.0);
+    col = texture(prev, w).rgb * clamp(decay, 0.0, 0.999);
+    float edge = smoothstep(0.02, 0.0, uv.x);
+    float m = spec(clamp(uv.y,0.0,1.0));
+    float wv = wav(uv.y);
+    float line = smoothstep(0.02*linew, 0.0, abs(uv.x - (0.03 + 0.05*wv*react)));
+    col += tint((m*1.7*react + 0.5*line*bursts) * edge, uv.y, t) * gain;
+    col += tint(beat*edge*0.8*bursts, uv.y, t*2.0);
+  }
+  else if(preset==4){
+    // ── ВЕРТИКАЛЬНЫЙ СКРОЛЛ (частота↔, время↑) ──
+    vec2 w = uv; w.y += (0.004 + 0.012*speed)*warp;
+    w.x += 0.0025*warp*sin(t*0.5 + uv.x*10.0);
+    col = texture(prev, w).rgb * clamp(decay, 0.0, 0.999);
+    float edge = smoothstep(0.02, 0.0, 1.0 - uv.y);
+    float m = spec(clamp(uv.x,0.0,1.0));
+    col += tint(m*1.7*react*edge, uv.x, t) * gain;
+    col += tint(beat*edge*0.8*bursts, uv.x, t*2.0);
+  }
+  else {
+    // ── ПЛОСКАЯ ПЛАЗМА (не привязана к центру) ──
+    vec2 w = uv + vec2(0.0022*warp*sin(t*0.30 + uv.y*8.0), 0.0018*warp*cos(t*0.27 + uv.x*8.0));
+    col = texture(prev, w).rgb * clamp(decay - 0.02, 0.0, 0.99);
+    float fld = 0.5 + 0.5*sin((uv.x*6.0 + uv.y*4.0) + t*1.5*speed + 6.0*spec(uv.x)*react);
+    float wv = wav(uv.x);
+    float line = smoothstep(0.02*linew, 0.0, abs(uv.y - (0.5 + 0.32*wv)));
+    col += tint(0.5*fld*level*react + 0.7*line*bursts, uv.x + 0.2*uv.y, t) * gain;
+    col += tint(beat*0.4*bursts, uv.y, t);
+  }
+  fragColor = vec4(max(col, 0.0), 1.0);
 }
 """
 
@@ -1079,7 +1114,7 @@ class GPUVisualizer:
             if edge(glfw.KEY_ESCAPE):
                 break
             if edge(glfw.KEY_SPACE):
-                self._preset = (self._preset + 1) % 3
+                self._preset = (self._preset + 1) % 6
             if edge(glfw.KEY_F11) or edge(glfw.KEY_F):
                 self._toggle_fs(glfw, win, 0)
             if edge(glfw.KEY_1):

@@ -11,9 +11,35 @@ function setVis(id, vis){
   m.style.display = vis ? '' : 'none';
   const d = document.querySelector('#chip-'+id+' .led-dot');
   if(d) d.classList.toggle('on', vis);
+  setTimeout(fitWindow, 50);
 }
 function toggleMod(id){ const m = $(id); setVis(id, m.style.display === 'none'); }
 window.setVis = setVis; window.toggleMod = toggleMod;
+
+/* тема: dark / silver (JVC) */
+function setTheme(t){
+  document.body.classList.toggle('theme-silver', t==='silver');
+  document.querySelectorAll('#theme-seg button').forEach(b=>b.classList.toggle('on', b.dataset.t===t));
+  setTimeout(fitWindow, 60);
+}
+
+/* выбор раскладки: 1 или 2 колонки */
+function setCols(n){
+  document.body.classList.toggle('cols1', n===1);
+  document.querySelectorAll('#cols-seg button').forEach(b=>b.classList.toggle('on', parseInt(b.dataset.c)===n));
+  setTimeout(fitWindow, 60);
+}
+
+/* подгонка окна ровно под содержимое */
+function fitWindow(){
+  try{
+    const wrap=document.querySelector('.wrap');
+    if(!wrap || !API) return;
+    let w=Math.ceil(wrap.scrollWidth), h=Math.ceil(wrap.scrollHeight);
+    if(window.screen){ w=Math.min(w, screen.availWidth); h=Math.min(h, screen.availHeight); }
+    API.resize_window(w, h);
+  }catch(e){}
+}
 
 /* ---- helpers ---- */
 function el(tag, cls, html){ const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
@@ -77,14 +103,15 @@ function renderOutputs(){
     ROLES.forEach(([lbl,val])=>{ const b=el('button', o.role===val?'on':'', lbl); b.onclick=()=>{ API.set_output(o.id,'role',val).then(refresh);}; seg.appendChild(b); });
     row.appendChild(seg);
     // volume fader
+    const led=el('div','led', String(Math.round(o.vol*100)));
     const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
     const gv=()=>o.vol/1.5; gv.def=1/1.5;
-    bindFader(fader, gv, v=>{ o.vol=v*1.5; API.set_output(o.id,'vol',o.vol); });
+    bindFader(fader, gv, v=>{ o.vol=v*1.5; API.set_output(o.id,'vol',o.vol); led.textContent=Math.round(o.vol*100); });
     row.appendChild(fader);
-    // vu
+    // vu (live level)
     const vu=el('div','vu'); vu.dataset.outvu=o.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
-    // value (dB peak)
-    const led=el('div','led','-inf'); led.dataset.outdb=o.id; row.appendChild(led);
+    // value (set volume %)
+    row.appendChild(led);
     // remove output (clear, at row end)
     const rm=el('button','btn rrm','✕'); rm.title='Удалить выход';
     rm.onclick=()=>API.remove_output(o.id).then(refresh); row.appendChild(rm);
@@ -118,12 +145,13 @@ function renderSources(){
     // balance seg (placeholder column)
     const segc=el('div'); row.appendChild(segc);
     // volume
+    const led=el('div','led', String(Math.round(s.vol*100)));
     const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
     const gv=()=>s.vol/1.5; gv.def=1/1.5;
-    bindFader(fader, gv, v=>{ s.vol=v*1.5; API.set_source(s.id,'vol',s.vol); });
+    bindFader(fader, gv, v=>{ s.vol=v*1.5; API.set_source(s.id,'vol',s.vol); led.textContent=Math.round(s.vol*100); });
     row.appendChild(fader);
     const vu=el('div','vu'); vu.dataset.srcvu=s.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
-    const led=el('div','led', String(Math.round(s.vol*100))); led.dataset.srcvol=s.id; row.appendChild(led);
+    row.appendChild(led);
     const rm=el('button','btn rrm','✕'); rm.title='Удалить источник';
     rm.onclick=()=>API.remove_source(s.id).then(refresh); row.appendChild(rm);
     box.appendChild(row);
@@ -250,7 +278,7 @@ function renderChooser(){
 }
 
 /* ================= STATE ================= */
-function refresh(){ return API.get_state().then(s=>{ ST=s; renderAll(); }); }
+function refresh(){ return API.get_state().then(s=>{ ST=s; renderAll(); setTimeout(fitWindow, 60); }); }
 
 /* ================= METERS LOOP ================= */
 let vizCtx=null, vizCanvas=null;
@@ -261,7 +289,6 @@ function meterLoop(){
     for(const id in m.outs){ const v=$('rows-out')?document.querySelector('[data-outvu="'+id+'"]'):null;
       const peak=m.outs[id];
       const vu=document.querySelector('[data-outvu="'+id+'"]'); if(vu) vu.style.setProperty('--v', pct(Math.min(1,peak*1.4))+'%');
-      const db=document.querySelector('[data-outdb="'+id+'"]'); if(db) db.textContent=dbStr(peak);
       const dot=document.querySelector('[data-outpeak="'+id+'"]'); if(dot) dot.classList.toggle('on', m.running);
     }
     for(const id in m.srcs){ const lr=m.srcs[id]; const pk=Math.max(lr[0],lr[1]);
@@ -305,8 +332,12 @@ function drawViz(spec, wave, level, beat){
 /* ================= WIRE BUTTONS ================= */
 function wire(){
   $('btn-add-out').onclick=()=>API.add_output().then(refresh);
+  $('btn-add-src').title='Добавить физический вход (микрофон/линейный/CABLE)';
   $('btn-add-src').onclick=()=>API.add_source().then(refresh);
+  $('btn-add-sys').title='Добавить системный звук (что играет ПК, loopback)';
   $('btn-add-sys').onclick=()=>API.add_loopback().then(refresh);
+  document.querySelectorAll('#cols-seg button').forEach(b=>{ b.onclick=()=>{ setCols(parseInt(b.dataset.c)); }; });
+  document.querySelectorAll('#theme-seg button').forEach(b=>{ b.onclick=()=>{ setTheme(b.dataset.t); }; });
   $('btn-eq-on').onclick=()=>{ ST.eq.on=!ST.eq.on; API.set_eq_on(ST.eq.on).then(()=>renderEQ()); };
   $('btn-eq-reset').onclick=()=>API.eq_reset().then(refresh);
   $('btn-eq-presets').onclick=openPresets;
@@ -325,9 +356,19 @@ function wire(){
   $('calib-cancel').onclick=()=>{ $('calib-modal').style.display='none'; };
   $('calib-run').onclick=()=>{
     const sel=$('calib-mic'); const lbl=sel.options.length?sel.options[sel.selectedIndex].text:'';
-    $('calib-status').textContent='Измеряю задержки…';
-    API.calibrate(lbl).then(r=>{ $('calib-status').textContent=r||'Готово'; refresh(); });
+    $('calib-status').textContent='Измеряю задержки… (тихий свип на каждую колонку)';
+    $('calib-run').disabled=true;
+    API.calibrate(lbl).then(res=>{
+      $('calib-run').disabled=false;
+      $('calib-status').textContent=(res&&res.msg)||'Готово';
+      renderCalibResults((res&&res.items)||[]);
+      $('calib-setup').style.display='none';
+      $('calib-results').style.display='';
+      refresh();
+    });
   };
+  $('calib-again').onclick=()=>{ $('calib-results').style.display='none'; $('calib-setup').style.display=''; $('calib-status').textContent=''; };
+  $('calib-done').onclick=()=>{ $('calib-modal').style.display='none'; refresh(); };
   document.querySelectorAll('#viz-color button').forEach(b=>{ b.onclick=()=>{ const cm=parseInt(b.dataset.cm); ST.viz.color_mode=cm; API.set_viz('color_mode',cm); renderVizColor(); }; });
 }
 
@@ -336,7 +377,21 @@ function openCalib(){
   (ST.mic_devices||[]).forEach(d=>{ const o=el('option',null,d.label); o.value=d.idx; sel.appendChild(o); });
   if(!sel.options.length){ sel.appendChild(el('option',null,'(микрофон не найден)')); }
   $('calib-status').textContent='';
+  $('calib-setup').style.display=''; $('calib-results').style.display='none';
   $('calib-modal').style.display='flex';
+}
+function renderCalibResults(items){
+  const box=$('calib-rows'); box.innerHTML='';
+  if(!items.length){ box.appendChild(el('div',null,'нет данных')); return; }
+  items.forEach(it=>{
+    const r=el('div'); r.style.display='flex'; r.style.alignItems='center'; r.style.gap='10px';
+    const nm=el('div',null,it.name); nm.style.flex='1'; nm.style.fontFamily='var(--cond)'; nm.style.fontSize='12px'; nm.style.letterSpacing='.04em';
+    const inp=el('input'); inp.type='number'; inp.min=0; inp.max=500; inp.step=1; inp.value=it.delay;
+    inp.style.cssText='width:74px;background:#0c0d0f;color:var(--amber);border:1px solid #000;border-radius:3px;padding:5px 8px;font-family:var(--led);font-size:13px;color-scheme:dark';
+    inp.oninput=()=>API.set_output(it.id,'delay',parseFloat(inp.value)||0);
+    const u=el('span',null,'мс'); u.style.color='var(--sub)'; u.style.fontSize='10px'; u.style.letterSpacing='.16em';
+    r.appendChild(nm); r.appendChild(inp); r.appendChild(u); box.appendChild(r);
+  });
 }
 
 function openPresets(){
