@@ -1,61 +1,114 @@
-# Channel Splitter (L → колонка 1, R → колонка 2)
+# Channel Splitter — Errarium™
 
-Маленький модуль для Windows: захватывает стерео-источник (по умолчанию **CABLE Output**)
-и шлёт **левый канал на одно устройство, правый — на другое** (например, две Bluetooth-колонки).
-Каждый выход — отдельный WASAPI-поток со своим буфером, чтобы независимые часы устройств
-(особенно Bluetooth) не давали щелчков.
+**Channel Splitter** is a premium Windows audio router. It captures a stereo source on
+your PC and sends the **left and right channels to independent output devices** — for
+example two Bluetooth speakers — while keeping a stereo pair (e.g. headphones) intact.
+Each output runs on its own WASAPI stream with its own buffer, so the independent clocks
+of wireless devices don't cause clicks, and per‑output delay lets you line them up.
 
-## Графический интерфейс (рекомендуется)
-Запусти **`gui.bat`** — откроется строгий тёмный микшер:
-- **ВЫХОДЫ:** выбор ЛЕВОЙ и ПРАВОЙ колонки + громкость каждой + индикаторы уровня.
-- **ИСТОЧНИКИ:** добавляй сколько нужно (`+ Источник`), у каждого: устройство,
-  **громкость**, **баланс** (← левая колонка … правая колонка →) и **Mute**.
-- **МАСТЕР**-громкость, кнопки **СТАРТ/СТОП**, **Тест тоны**, **⟳ Устройства**.
-- Все регуляторы работают **на лету** во время воспроизведения.
+It ships as a single installer with a brushed‑metal, pro‑AV rack interface
+(seven‑segment readouts, tri‑colour segmented meters), a 12‑band equalizer, a DSP
+effects rack, a GPU music visualizer, a now‑playing media bar, system‑tray support and a
+floating mini player. Interface language (English / Russian) is chosen during install.
 
-Каждый источник отдаёт свой левый канал в левую колонку, правый — в правую;
-баланс смещает источник между колонками.
+> © 2026 Errarium™. Proprietary license — see [LICENSE.txt](LICENSE.txt).
+> Personal, non‑commercial use. No resale or rebranding.
 
-## Требования
-- Python 3.11+ и пакет `sounddevice` (уже установлены).
-  При необходимости: `pip install sounddevice numpy`
-- VB-Audio Virtual Cable (CABLE Input/Output) — уже стоит.
+---
 
-## Как пользоваться
+## Highlights
 
-1. **Звук Windows → в кабель.** Параметры звука → устройство вывода по умолчанию =
-   **CABLE Input (VB-Audio Virtual Cable)**. Теперь весь звук ПК идёт в кабель, который ловит модуль.
+- **Channel matrix** — route any number of outputs; each one is **L / R / Mono / L‑R**,
+  with its own volume, mute, sub‑woofer (low‑pass) mode and phase invert (Ø).
+- **Multiple sources** — capture system audio (WASAPI loopback — “what the PC is
+  playing”) and/or physical inputs (microphone, line‑in, VB‑Audio CABLE), each with
+  volume, balance, mute and phase.
+- **Latency compensation**
+  - **Manual sync slider** — drag until the speakers line up.
+  - **Auto‑Calibration** — a microphone plays a quiet sweep on each output and aligns
+    the delays automatically.
+  - **HOLD** — lock the sync you like, and the app keeps it online by tracking
+    Bluetooth clock drift through the microphone (no audible probes).
+- **12‑band graphic EQ** with savable presets (presets persist across updates).
+- **DSP effects rack** — 2‑D pads for Space (width/depth), Position (pan/distance) and
+  Tone (warm‑bright/drive), plus compressor, mono‑bass and reverb (size + mix).
+- **GPU visualizer** — full‑screen / 4K MilkDrop‑style fields with multiple presets and
+  colour modes; press the Visualizer button again to cycle presets.
+- **Now‑Playing bar** — title, artist and real position from Windows Media Session, with
+  transport controls (play/pause, next, previous, stop) for the active media app.
+- **System tray** — closing the window minimizes to tray; the tray menu gives
+  show / mini‑player / transport / exit.
+- **Floating mini player** — a small always‑on‑top strip to control playback when the
+  main window is hidden.
+- **Loud‑start protection** — first run starts at a safe volume and fades in; all
+  settings (volumes, EQ, effects, theme, layout, language) are remembered and restored.
+- **Themes & layout** — Dark or Silver (JVC‑style) face; one‑ or two‑column rack.
+- **Bilingual UI** — English / Russian, including tooltips. Chosen at install time.
 
-2. **Подключи обе Bluetooth-колонки** и узнай их имена:
-   ```
-   run.bat --list
-   ```
+---
 
-3. **Запусти разведение** (подставь куски имён своих колонок):
-   ```
-   run.bat --left "Bob" --right "JBL"
-   ```
-   Левый канал пойдёт на «Bob», правый — на «JBL PARTYBOX 310». Ctrl+C — стоп.
+## Install
 
-## Проверка без музыки (тестовые тоны)
-Левая колонка играет 440 Гц, правая — 660 Гц:
+1. Run **`ChannelSplitter-Setup-2.1.exe`**.
+2. Pick the interface language (English / Russian) in the setup wizard.
+3. Launch Channel Splitter.
+
+Settings and EQ presets are stored in
+`%APPDATA%\Errarium\ChannelSplitter\` and survive updates and reinstalls.
+
+### Recommended: route Windows audio into the app
+To split *everything* the PC plays, add a **System Audio** source (WASAPI loopback) —
+no extra setup needed. Alternatively install **VB‑Audio Virtual Cable**, set the Windows
+default output to **CABLE Input**, and add **CABLE Output** as a source.
+
+---
+
+## Quick start
+
+1. **Add outputs** (Output Matrix → **+ Output**): pick each device and set its role
+   (e.g. one speaker **L**, the other **R**; headphones **L‑R** for full stereo).
+2. **Add a source** (Pre‑Amp → **+ System** for system audio, or **+ Source** for a
+   physical input).
+3. Press **power (ON)** in the bottom panel.
+4. **Align the speakers**: drag the **SYNC** slider, or run **Calibrate** with a mic, or
+   press **HOLD** to keep the alignment locked online.
+
+All controls work live during playback.
+
+---
+
+## About Bluetooth
+
+Two **independent** Bluetooth speakers can't be locked sample‑accurate forever — each has
+its own clock and its own, drifting latency. The manual slider and Auto‑Calibration set
+the offset; **HOLD** continuously corrects the drift via the microphone. A small residual
+offset is the physics of Bluetooth, not a bug. For perfect sync use a wired pair or a
+single transmitter driving a stereo set.
+
+---
+
+## System requirements
+
+- Windows 10 / 11 (x64).
+- WebView2 runtime (preinstalled on current Windows; the installer relies on it).
+- A microphone is only needed for Auto‑Calibration / HOLD.
+
+---
+
+## Build from source (developers)
+
+```bat
+build_exe.bat          REM builds dist\ChannelSplitter.exe (isolated venv, PyInstaller)
+ISCC installer.iss     REM builds installer_out\ChannelSplitter-Setup-2.1.exe (Inno Setup 6)
 ```
-run.bat --test --left "Bob" --right "JBL"
-```
 
-## Параметры
-| Флаг | Назначение | По умолчанию |
-|------|------------|--------------|
-| `--input` | источник (имя/индекс) | `CABLE Output` |
-| `--left` / `--right` | устройства каналов (имя/индекс) | `Bob` / `JBL` |
-| `--samplerate` | частота дискретизации | `48000` |
-| `--blocksize` | размер блока (меньше = ниже задержка) | `480` |
-| `--gain` | усиление | `1.0` |
-| `--maxbuf` | макс. буфер на канал (блоков) | `32` |
-| `--list` | показать устройства | — |
-| `--test` | тестовые тоны | — |
+Stack: Python audio engine (`splitter_gui.py`, NumPy/SciPy/sounddevice/soundcard),
+pywebview UI (`splitter_app.py` + `app_web/`), moderngl/glfw GPU visualizer,
+winsdk for Windows Media Session, pystray for the tray icon.
 
-## Важно про Bluetooth
-Две **независимые** BT-колонки нельзя засинхронизировать сэмпл-в-сэмпл (у каждой своя задержка).
-Небольшое смещение между левой и правой — это физика BT, а не баг. Для идеальной синхронности —
-провод или одна стерео-пара с единым передатчиком.
+A Russian copy of this document is in [README.ru.md](README.ru.md).
+
+---
+
+© 2026 **Errarium™**. “Errarium” and the Errarium logo are trademarks of the rights holder.
+Contact: **errarium_ai@gmail.com**.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Channel Splitter — концепт (AV-аппаратура)</title>
+<title>Channel Splitter — Errarium</title>
 <link rel="stylesheet" href="fonts/google.css">
 <link rel="stylesheet" href="fonts/dseg.css">
 <style>
@@ -67,7 +67,7 @@
     background:rgba(0,0,0,.24);box-shadow:inset 0 2px 5px rgba(0,0,0,.55),0 1px 0 var(--hi)}
   .transport-keys .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:17px;letter-spacing:.05em;line-height:1}
   .transport-keys .mkey-play{width:72px;font-size:18px}
-  .transport-keys .mkey-stop{width:36px;font-size:14px;margin-left:12px}   /* стоп = половина ширины плэй, отделён */
+  .transport-keys .mkey-stop{width:36px;font-size:14px}   /* стоп между «назад» и «плей» */
   #mod-player .pbody{padding:5px 30px 8px}
   .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
   .screen{display:flex;align-items:center;gap:16px}
@@ -96,9 +96,9 @@
     background:linear-gradient(180deg,#0a0c0e,#070809);border:1px solid #000;border-radius:3px;
     box-shadow:inset 0 1px 3px rgba(0,0,0,.8);padding:7px 12px}
   .chip{display:flex;align-items:baseline;justify-content:space-between;
-    font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--sub)}
-  .chip b{font-family:var(--led);font-weight:400;color:#3dff90;font-size:11px;letter-spacing:.02em;
-    text-shadow:0 0 6px rgba(61,255,144,.45)}
+    font-family:var(--cond);font-weight:400;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#aeb3ad}
+  .chip b{font-family:var(--cond);font-weight:500;color:#3dff90;font-size:12px;letter-spacing:.06em;
+    font-variant-numeric:tabular-nums;text-shadow:0 0 6px rgba(61,255,144,.45)}
   .player-brand{position:absolute;top:11px;right:74px;font-family:var(--cond);font-weight:300;font-size:9px;
     letter-spacing:.26em;text-transform:uppercase;color:var(--sub)}
   .player-brand b{color:var(--amber);font-weight:400}
@@ -129,7 +129,8 @@
   .marque{display:flex;align-items:center;gap:6px;font-family:var(--cond);font-weight:500;font-size:12px;
     letter-spacing:.36em;text-transform:uppercase;color:#e9ebe7;white-space:nowrap}
   .marque::before{content:"◆";color:var(--amber);font-size:7px;text-shadow:0 0 5px rgba(232,176,75,.6)}
-  .model{font-family:var(--led);font-size:12px;letter-spacing:.04em;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.45);white-space:nowrap}
+  /* модельные номера — читаемый технический шрифт (DSEG7 уродует буквы: MX-840→ПН-840) */
+  .model{font-family:var(--cond);font-weight:500;font-size:13px;letter-spacing:.16em;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.4);white-space:nowrap}
   .fn{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .pbody{padding:4px 30px}
   .actions{display:flex;gap:8px}
@@ -148,6 +149,11 @@
   .btn.on{color:var(--amber);text-shadow:0 0 9px rgba(232,176,75,.75);border-color:rgba(232,176,75,.5);
     box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 -3px 5px rgba(0,0,0,.5),0 0 12px rgba(232,176,75,.16)}
   .btn.on:hover{color:#ffd98a}
+  /* кнопки добавления: крупный заметный «+» */
+  .btn.add::before{content:"+";font-family:var(--cond);font-weight:600;font-size:17px;line-height:1;
+    color:var(--amber);text-shadow:0 0 8px rgba(232,176,75,.7);margin-right:-2px}
+  .btn.add:hover::before{color:#ffd98a}
+  body.theme-silver .btn.add::before{color:#1d7a47;text-shadow:0 0 6px rgba(50,200,120,.5)}
 
   /* ===== Строка устройства =====
      ПРАВИЛО ЕДИНОГО СТИЛЯ: все ряды во всех модулях используют ОДНУ сетку колонок —
@@ -232,20 +238,22 @@
   .stat{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
   .master{display:flex;align-items:center;gap:12px;margin-left:6px}
   .master .fader{width:150px}
-  /* задержки + фаза на нижней панели */
+  /* задержки (ряд1) + фаза (ряд2) на нижней панели */
+  .tphase{display:flex;align-items:center;gap:8px}
+  .tphase .lbl{margin-right:2px}
   .tdelays{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .td{display:flex;align-items:center;gap:5px}
   .tdname{font-family:var(--cond);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-2);max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tdlbl{font-family:var(--cond);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
-  .tdval{font-family:var(--led);font-size:12px;color:var(--amber);min-width:24px;text-align:right;
-    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tdval{font-family:var(--cond);font-weight:500;font-size:12px;color:var(--amber);min-width:24px;text-align:right;
+    font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 5px rgba(232,176,75,.35)}
   .led,.val{font-variant-numeric:tabular-nums}
   .td .ico{width:24px;height:24px;font-size:12px}
   .feature{margin-left:auto;display:flex;gap:8px}
   .feature .btn{min-width:120px;padding:0 12px}
 
   /* ===== Выбор модулей стойки ===== */
-  .chooser{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:11px 28px}
+  .chooser{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;padding:11px 28px}
   .chooser .lbl{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--sub);margin-right:6px}
   .chip-tog{min-width:0;padding:0 12px;height:28px}
   .chip-tog .led-dot{width:6px;height:6px}
@@ -274,7 +282,7 @@
   .handle::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;transform:translateX(-50%);background:rgba(232,176,75,.55);box-shadow:0 0 4px rgba(232,176,75,.5)}
   .handle::after{content:"";position:absolute;top:50%;left:0;right:0;height:1px;transform:translateY(-50%);background:rgba(232,176,75,.55);box-shadow:0 0 4px rgba(232,176,75,.5)}
   .handle b{position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%);background:var(--amber);box-shadow:0 0 9px var(--amber)}
-  .fxfaders{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:10px;padding-top:12px;border-top:1px solid #000;box-shadow:inset 0 1px 0 var(--hi)}
+  .fxfaders{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:10px;padding-top:12px;border-top:1px solid #000;box-shadow:inset 0 1px 0 var(--hi)}
   .fxf{display:flex;flex-direction:column;gap:8px}
   .fxf .top{display:flex;align-items:baseline;justify-content:space-between}
   .fxf .nm{font-family:var(--cond);font-weight:300;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-2)}
@@ -387,7 +395,7 @@
 <div class="wrap">
 
   <div class="chooser">
-    <span class="lbl">Rack</span>
+    <span class="lbl" data-i18n="rack">Rack</span>
     <button class="btn chip-tog" id="chip-mod-player" onclick="toggleMod('mod-player')"><span class="led-dot on"></span> Player</button>
     <button class="btn chip-tog" id="chip-mod-out" onclick="toggleMod('mod-out')"><span class="led-dot on"></span> Matrix</button>
     <button class="btn chip-tog" id="chip-mod-src" onclick="toggleMod('mod-src')"><span class="led-dot on"></span> Pre-Amp</button>
@@ -395,9 +403,9 @@
     <button class="btn chip-tog" id="chip-mod-fx" onclick="toggleMod('mod-fx')"><span class="led-dot on"></span> DSP</button>
     <button class="btn chip-tog" id="chip-mod-viz" onclick="toggleMod('mod-viz')"><span class="led-dot on"></span> Analyzer</button>
     <span style="flex:1"></span>
-    <span class="lbl">Тема</span>
+    <span class="lbl" data-i18n="theme">Тема</span>
     <div class="seg sm" id="theme-seg"><button class="on" data-t="dark">Dark</button><button data-t="silver">Silver</button></div>
-    <span class="lbl" style="margin-left:10px">Колонки</span>
+    <span class="lbl" style="margin-left:10px" data-i18n="layout">Колонки</span>
     <div class="seg sm" id="cols-seg"><button data-c="1">1</button><button class="on" data-c="2">2</button></div>
   </div>
 
@@ -409,10 +417,10 @@
         <div class="phead">
           <div class="fp"><span class="marque">Errarium</span><span class="model">MS-110</span></div>
           <div class="transport-keys">
-            <button class="btn mkey" id="md-prev" title="Предыдущий">⏮</button>
-            <button class="btn mkey mkey-play" id="md-play" title="Плей / Пауза">⏯</button>
-            <button class="btn mkey" id="md-next" title="Следующий">⏭</button>
-            <button class="btn mkey mkey-stop" id="md-stop" title="Стоп">⏹</button>
+            <button class="btn mkey" id="md-prev" data-i18n-title="tip_prev" title="Предыдущий">⏮</button>
+            <button class="btn mkey mkey-stop" id="md-stop" data-i18n-title="tip_stop" title="Стоп">⏹</button>
+            <button class="btn mkey mkey-play" id="md-play" data-i18n-title="tip_play" title="Плей / Пауза">⏯</button>
+            <button class="btn mkey" id="md-next" data-i18n-title="tip_next" title="Следующий">⏭</button>
           </div>
           <div class="actions"><button class="btn eject" onclick="setVis('mod-player',false)">✕</button></div></div>
         <div class="pbody player-body">
@@ -437,7 +445,7 @@
       <div class="face mod u-full">
         <div class="phead">
           <div class="fp"><span class="marque">Errarium</span><span class="model">MX-840</span><span class="fn">Output Matrix</span></div>
-          <div class="actions"><button class="btn" id="btn-add-out">+ Output</button><button class="btn eject" onclick="setVis('mod-out',false)">✕</button></div></div>
+          <div class="actions"><button class="btn add" id="btn-add-out" data-i18n="add_output">Output</button><button class="btn eject" onclick="setVis('mod-out',false)">✕</button></div></div>
         <div class="pbody" id="rows-out"></div>
       </div>
     </section>
@@ -448,8 +456,8 @@
         <div class="phead">
           <div class="fp"><span class="marque">Errarium</span><span class="model">PA-220</span><span class="fn">Preamplifier</span></div>
           <div class="actions">
-            <button class="btn" id="btn-add-sys">+ System</button>
-            <button class="btn" id="btn-add-src">+ Source</button>
+            <button class="btn add" id="btn-add-sys" data-i18n="add_system" data-i18n-title="tip_add_sys">System</button>
+            <button class="btn add" id="btn-add-src" data-i18n="add_source" data-i18n-title="tip_add_src">Source</button>
             <button class="btn eject" onclick="setVis('mod-src',false)">✕</button>
           </div></div>
         <div class="pbody" id="rows-src"></div>
@@ -463,8 +471,8 @@
           <div class="fp"><span class="marque">Errarium</span><span class="model">EQ-12</span><span class="fn">Graphic Equalizer</span></div>
           <div class="actions">
             <button class="btn" id="btn-eq-on">EQ Off</button>
-            <button class="btn" id="btn-eq-presets">Presets</button>
-            <button class="btn" id="btn-eq-reset">Reset</button>
+            <button class="btn" id="btn-eq-presets" data-i18n="presets">Presets</button>
+            <button class="btn" id="btn-eq-reset" data-i18n="reset">Reset</button>
             <button class="btn eject" onclick="setVis('mod-eq',false)">✕</button>
           </div></div>
         <div class="pbody"><div class="eq" id="eq-bands"></div></div>
@@ -479,15 +487,16 @@
           <div class="actions"><button class="btn eject" onclick="setVis('mod-fx',false)">✕</button></div></div>
         <div class="pbody fxbody">
           <div class="fxpads">
-            <div class="pad" id="pad-space"><div class="pad-t">Space ⏻</div><div class="pad-y">↑ Depth</div><div class="pad-x">Width →</div><div class="handle"><b></b></div></div>
-            <div class="pad" id="pad-pos"><div class="pad-t">Position ⏻</div><div class="pad-y">↑ Near</div><div class="pad-x">Pan →</div><div class="handle"><b></b></div></div>
-            <div class="pad" id="pad-tone"><div class="pad-t">Tone ⏻</div><div class="pad-y">↑ Drive</div><div class="pad-x">Warm·Bright →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-space" data-i18n-title="tip_space"><div class="pad-t">Space ⏻</div><div class="pad-y">↑ Depth</div><div class="pad-x">Width →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-pos" data-i18n-title="tip_position"><div class="pad-t">Position ⏻</div><div class="pad-y">↑ Near</div><div class="pad-x">Pan →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-tone" data-i18n-title="tip_tone"><div class="pad-t">Tone ⏻</div><div class="pad-y">↑ Drive</div><div class="pad-x">Warm·Bright →</div><div class="handle"><b></b></div></div>
           </div>
           <div class="fxfaders">
-            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-comp" data-fx="comp">Compressor · OFF</span><span class="led" id="led-comp">-18</span></div><div class="fader" id="fader-comp"><div class="trk"></div><div class="cap"></div></div></div>
-            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-mb" data-fx="mb">Mono-Bass · OFF</span><span class="led" id="led-mb">120</span></div><div class="fader" id="fader-mb"><div class="trk"></div><div class="cap"></div></div></div>
-            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-rev" data-fx="rev">Reverb · OFF</span></div>
-              <div class="fxrow2">
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-comp" data-fx="comp" data-i18n-title="tip_comp">Compressor · OFF</span><span class="led" id="led-comp">-18</span></div><div class="fader" id="fader-comp" data-i18n-title="tip_comp"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-bass" data-fx="bass" data-i18n-title="tip_bass">Bass · OFF</span><span class="led" id="led-bass">0</span></div><div class="fader" id="fader-bass" data-i18n-title="tip_bass"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-mb" data-fx="mb" data-i18n-title="tip_monobass">Mono-Bass · OFF</span><span class="led" id="led-mb">120</span></div><div class="fader" id="fader-mb" data-i18n-title="tip_monobass"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-rev" data-fx="rev" data-i18n-title="tip_reverb">Reverb · OFF</span></div>
+              <div class="fxrow2" data-i18n-title="tip_reverb">
                 <span class="t2">Sz</span><div class="fader" id="fader-revsize"><div class="trk"></div><div class="cap"></div></div><span class="led" id="led-revsize">50</span>
                 <span class="t2">Mx</span><div class="fader" id="fader-rev"><div class="trk"></div><div class="cap"></div></div><span class="led" id="led-rev">22</span>
               </div></div>
@@ -504,7 +513,7 @@
           <div class="fp"><span class="marque">Errarium</span><span class="model">SA-100</span><span class="fn">Spectrum Analyzer</span></div>
           <div class="actions">
             <div class="seg sm" id="viz-color"><button class="on" data-cm="0">Color</button><button data-cm="1">B&amp;W</button><button data-cm="2">Mono</button></div>
-            <button class="btn" id="btn-viz-open">Open GPU</button>
+            <button class="btn" id="btn-viz-open" data-i18n="open_gpu" data-i18n-title="tip_viz">Open GPU</button>
             <button class="btn eject" onclick="setVis('mod-viz',false)">✕</button>
           </div></div>
         <div class="pbody vizbody">
@@ -520,22 +529,24 @@
     <div class="transport-row">
       <button class="power" id="btn-power"><span class="led-dot" id="power-led"></span> <span id="power-txt">OFF</span></button>
       <div class="stat" id="transport-stat">stopped</div>
-      <div class="master"><span class="stat">Master</span>
+      <div class="master"><span class="stat" data-i18n="master">Master</span>
         <div class="fader" id="master-fader"><div class="trk"></div><div class="cap"></div></div>
         <span class="led" id="master-led">100</span></div>
+      <div id="transport-hold"></div>
       <div class="tdelays" id="transport-delays"></div>
     </div>
     <div class="transport-row">
+      <div class="tphase" id="transport-phase"></div>
       <div class="feature">
-        <button class="btn" id="btn-devices">Devices</button>
-        <button class="btn" id="btn-calib">Calibrate</button>
-        <button class="btn" id="btn-fx">Effects</button>
-        <button class="btn" id="btn-viz">Visualizer</button>
+        <button class="btn" id="btn-devices" data-i18n="devices" data-i18n-title="tip_devices">Devices</button>
+        <button class="btn" id="btn-calib" data-i18n="calibrate" data-i18n-title="tip_calib">Calibrate</button>
+        <button class="btn" id="btn-fx" data-i18n="effects" data-i18n-title="tip_fx">Effects</button>
+        <button class="btn" id="btn-viz" data-i18n="visualizer" data-i18n-title="tip_viz">Visualizer</button>
       </div>
     </div>
   </div>
 
-  <div class="foot">© 2026 <b>Errarium™</b> · Channel Splitter</div>
+  <div class="foot" id="foot-about" style="cursor:pointer" title="About / О программе">© 2026 <b>Errarium™</b> · Channel Splitter</div>
 
 </div>
 
@@ -544,10 +555,10 @@
     <div class="fp" style="margin-bottom:14px"><span class="marque">Errarium</span><span class="model">EQ-12</span><span class="fn">Presets</span></div>
     <div id="preset-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:260px;overflow:auto"></div>
     <div style="display:flex;gap:8px">
-      <input id="preset-name" placeholder="Имя нового пресета…" style="flex:1;background:#0c0d0f;color:var(--fg);border:1px solid #000;border-radius:3px;padding:8px 10px;font-family:var(--cond);font-size:12px;letter-spacing:.04em;color-scheme:dark">
-      <button class="btn" id="preset-save">Сохранить</button>
+      <input id="preset-name" data-i18n-ph="preset_ph" placeholder="Имя нового пресета…" style="flex:1;background:#0c0d0f;color:var(--fg);border:1px solid #000;border-radius:3px;padding:8px 10px;font-family:var(--cond);font-size:12px;letter-spacing:.04em;color-scheme:dark">
+      <button class="btn" id="preset-save" data-i18n="preset_save">Сохранить</button>
     </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" id="preset-close">Закрыть</button></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" id="preset-close" data-i18n="preset_close">Закрыть</button></div>
   </div>
 </div>
 
@@ -556,29 +567,60 @@
     <div class="fp" style="margin-bottom:14px"><span class="marque">Errarium</span><span class="model">CAL-1</span><span class="fn">Auto-Calibration</span></div>
 
     <div id="calib-setup">
-      <div style="color:var(--fg-2);font-size:12px;margin-bottom:9px;font-family:var(--cond);letter-spacing:.06em">
+      <div data-i18n="cal_intro" style="color:var(--fg-2);font-size:12px;margin-bottom:9px;font-family:var(--cond);letter-spacing:.06em">
         Микрофон выровняет задержки между выходами. Поставь микрофон между колонок и нажми «Калибровать» (прозвучит тихий свип на каждую колонку).
       </div>
-      <div style="color:var(--sub);font-size:10px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px">Микрофон</div>
+      <div data-i18n="cal_mic" style="color:var(--sub);font-size:10px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px">Микрофон</div>
       <select id="calib-mic" class="devsel" style="width:100%;margin-bottom:16px"></select>
       <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button class="btn" id="calib-cancel">Отмена</button>
-        <button class="btn" id="calib-run">Калибровать</button>
+        <button class="btn" id="calib-cancel" data-i18n="cal_cancel">Отмена</button>
+        <button class="btn" id="calib-select" data-i18n="cal_select">Выбрать для HOLD</button>
+        <button class="btn" id="calib-run" data-i18n="cal_run">Калибровать</button>
       </div>
     </div>
 
     <div id="calib-results" style="display:none">
-      <div style="color:var(--fg-2);font-size:11px;margin-bottom:10px;font-family:var(--cond);letter-spacing:.06em">
+      <div data-i18n="cal_result" style="color:var(--fg-2);font-size:11px;margin-bottom:10px;font-family:var(--cond);letter-spacing:.06em">
         Результат — задержки выровнены. Подстрой вручную (мс) при необходимости:
       </div>
       <div id="calib-rows" style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px;max-height:260px;overflow:auto"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button class="btn" id="calib-again">Заново</button>
-        <button class="btn on" id="calib-done">Готово</button>
+        <button class="btn" id="calib-again" data-i18n="cal_again">Заново</button>
+        <button class="btn on" id="calib-done" data-i18n="cal_done">Готово</button>
       </div>
     </div>
 
-    <div id="calib-status" style="color:var(--amber);font-size:11px;margin-top:12px;font-family:var(--led);min-height:14px"></div>
+    <div id="calib-status" style="color:var(--fg-2);font-size:11px;letter-spacing:.04em;margin-top:12px;font-family:var(--cond);min-height:14px"></div>
+  </div>
+</div>
+
+<div id="about-modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div class="face" style="width:560px;padding:22px 26px">
+    <div class="fp" style="margin-bottom:16px"><span class="marque">Errarium</span><span class="model">CS-2.1</span><span class="fn" data-i18n="about_title">О программе</span></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+      <div class="mark" style="font-size:18px">CHANNEL <b>SPLITTER</b></div>
+      <span style="font-family:var(--cond);font-weight:500;color:var(--amber);font-size:13px;letter-spacing:.06em">v2.1</span>
+    </div>
+    <div data-i18n="about_desc" style="color:var(--fg-2);font-size:12px;line-height:1.6;font-family:var(--cond);letter-spacing:.04em;margin-bottom:16px">—</div>
+
+    <div style="color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:5px" data-i18n="lic_head">Лицензия</div>
+    <div data-i18n="lic_body" style="color:var(--fg-2);font-size:11px;line-height:1.55;font-family:var(--cond);letter-spacing:.03em;margin-bottom:16px;border-left:2px solid var(--amber-dim);padding-left:12px">—</div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px">
+      <div>
+        <div style="color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:5px" data-i18n="contact">Связь</div>
+        <a href="#" id="about-contact" style="font-family:var(--cond);font-weight:500;color:var(--amber);font-size:13px;letter-spacing:.04em;text-decoration:none;cursor:pointer">errarium_ai@gmail.com</a>
+      </div>
+      <div>
+        <div style="color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:5px" data-i18n="donate">Поддержать</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" id="about-donate-pp" style="min-width:96px">PayPal</button>
+          <button class="btn" id="about-donate-cr" style="min-width:96px">Crypto</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end"><button class="btn" id="about-close" data-i18n="close">Закрыть</button></div>
   </div>
 </div>
 

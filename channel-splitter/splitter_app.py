@@ -83,8 +83,17 @@ class AppCore:
         self.sources = []
         self.gpu = None
         self._win = None
-        self.ui = {"theme": "dark", "cols": 2}
+        self._mini = None
+        self._tray = None
+        self._quitting = False
+        self._main_hidden = False
+        self._mini_hidden = False
+        self.ui = {"theme": "dark", "cols": 2, "lang": self._install_lang()}
         self._last_save = 0.0
+        self._hold_on = False
+        self._hold_thread = None
+        self._hold_stop = False
+        self._hold_mic = ""
         self.refresh_devices()
         if not self._load_settings():
             self.engine.master = 0.6   # безопасная стартовая громкость (не 100%)
@@ -95,6 +104,24 @@ class AppCore:
             else:
                 self.add_source()
             self.save_settings()
+
+    # ── язык: выбирается при установке (installer пишет lang.txt) ──
+    def _install_lang(self):
+        try:
+            p = os.path.join(core.user_data_dir(), "lang.txt")
+            with open(p, "r", encoding="utf-8") as f:
+                v = f.read().strip().lower()
+            return "en" if v.startswith("en") else "ru"
+        except Exception:
+            return "ru"
+
+    def open_url(self, url):
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            return True
+        except Exception:
+            return False
 
     # ── persistence: запоминаем и восстанавливаем ВСЕ регулировки ──
     def _settings_path(self):
@@ -417,6 +444,56 @@ class AppCore:
         except Exception:
             pass
 
+    # ── окна: главное + мини-плеер (трей) ──
+    def show_main(self):
+        try:
+            self._win.show(); self._win.restore()
+            self._main_hidden = False
+        except Exception:
+            pass
+        return True
+
+    def hide_main(self):
+        try:
+            self._win.hide(); self._main_hidden = True
+        except Exception:
+            pass
+        return True
+
+    def show_mini(self):
+        try:
+            self._mini.show(); self._mini_hidden = False
+        except Exception:
+            pass
+        return True
+
+    def hide_mini(self):
+        try:
+            self._mini.hide(); self._mini_hidden = True
+        except Exception:
+            pass
+        return True
+
+    def toggle_mini(self):
+        if self._mini_hidden:
+            return self.show_mini()
+        return self.hide_mini()
+
+    def quit_app(self):
+        self._quitting = True
+        try:
+            if self._tray is not None:
+                self._tray.stop()
+        except Exception:
+            pass
+        for w in (self._mini, self._win):
+            try:
+                if w is not None:
+                    w.destroy()
+            except Exception:
+                pass
+        return True
+
     # ── visualizer ──
     def open_viz(self):
         if not core.HAVE_GPU:
@@ -469,6 +546,99 @@ class AppCore:
 
     def media_stop(self):
         return self._media_cmd("stop")
+
+    # ── HOLD: онлайн-удержание синхронизации (компенсация дрейфа BT по микрофону) ──
+    def hold_toggle(self, mic_label=None):
+        if self._hold_on:
+            self._hold_stop = True
+            self._hold_on = False
+            self.engine.cal_capture = False
+            return False
+        if len([o for o in self.outputs if not o.is_sub]) < 2 or not self.mic:
+            return False
+        self._hold_mic = mic_label or self.ui.get("hold_mic") or (self.mic[0][1] if self.mic else "")
+        self._hold_stop = False
+        self._hold_on = True
+        self.engine.cal_capture = True
+        self._hold_thread = threading.Thread(target=self._hold_worker, args=(self._hold_mic,), daemon=True)
+        self._hold_thread.start()
+        return True
+
+    def _hold_worker(self, mic_label):
+        import time as _t
+        import sounddevice as sd
+        eng = self.engine
+        st = None
+        try:
+            outs = [o for o in self.outputs if not o.is_sub]
+            if len(outs) < 2:
+                return
+            a, b = outs[0], outs[1]
+            mic_idx = next((i for i, l in self.mic if l == mic_label), self.mic[0][0])
+            try:
+                msr = int(sd.query_devices(mic_idx).get("default_samplerate") or core.SR)
+            except Exception:
+                msr = core.SR
+            MR = int(msr * 2.5)
+            ring = np.zeros(MR, dtype=np.float32); wpos = [0]
+
+            def in_cb(indata, frames, _t2, _s):
+                x = indata[:, 0].astype(np.float32); n = x.shape[0]; w = wpos[0]; e = w + n
+                if e <= MR:
+                    ring[w:e] = x
+                else:
+                    k = MR - w; ring[w:] = x[:k]; ring[:e - MR] = x[k:]
+                wpos[0] = e % MR
+
+            st = sd.InputStream(device=mic_idx, channels=1, samplerate=msr, blocksize=1024,
+                                dtype="float32", callback=in_cb)
+            st.start()
+            base = None
+            base_d = (a.delay_ms, b.delay_ms)
+            WINs = int(0.9 * core.SR)
+
+            def lag(mc, o):
+                c = np.abs(core.fftconvolve(mc, o[::-1], mode="full"))
+                pk = int(np.argmax(c))
+                ratio = float(c[pk]) / (float(np.median(c)) + 1e-9)
+                return pk - (len(o) - 1), ratio
+
+            while not self._hold_stop and eng.running:
+                _t.sleep(2.0)
+                need = int(1.1 * msr)
+                w = wpos[0]
+                mic = np.concatenate([ring[w:], ring[:w]])[-need:]
+                if mic.size < need * 0.8:
+                    continue
+                tgt = max(1, int(mic.size * core.SR / msr))
+                micr = np.interp(np.linspace(0, 1, tgt), np.linspace(0, 1, mic.size), mic).astype(np.float32)
+                sa = eng.cal_snapshot(a); sb = eng.cal_snapshot(b)
+                if sa is None or sb is None:
+                    continue
+                m = micr[-WINs:] if micr.size >= WINs else micr
+                t0, r0 = lag(m, sa[-WINs:]); t1, r1 = lag(m, sb[-WINs:])
+                if r0 < 3.0 or r1 < 3.0:
+                    continue   # ненадёжно (моно-контент/тишина) — пропускаем
+                rel = (t1 - t0) / core.SR * 1000.0
+                if base is None:
+                    base = rel
+                    continue
+                drift = rel - base
+                net = (base_d[1] - base_d[0]) - drift
+                if net >= 0:
+                    a.set_delay(0.0); b.set_delay(min(300.0, net))
+                else:
+                    a.set_delay(min(300.0, -net)); b.set_delay(0.0)
+        except Exception:
+            pass
+        finally:
+            try:
+                if st is not None:
+                    st.stop(); st.close()
+            except Exception:
+                pass
+            eng.cal_capture = False
+            self._hold_on = False
 
     def calibrate(self, mic_label=None):
         """Авто-выравнивание задержек по микрофону: chirp на каждый выход →
@@ -616,6 +786,7 @@ class AppCore:
             "eq": {"on": e.eq_on, "gains": list(e.eq_gains)},
             "fx": {"spatial_on": e.spatial_on, "spatial": e.spatial, "threeD_on": e.threeD_on,
                    "threeD": e.threeD, "surround_on": e.surround_on, "surround": e.surround,
+                   "bass_on": e.bass_on, "bass": e.bass,
                    "monobass_on": e.monobass_on, "monobass_hz": e.monobass_hz,
                    "pos_on": e.pos_on, "pan": e.pan, "distance": e.distance,
                    "tone_on": e.tone_on, "tilt": e.tilt, "drive": e.drive,
@@ -623,6 +794,7 @@ class AppCore:
                    "comp_on": e.comp_on, "comp_thresh": e.comp_thresh},
             "viz": dict(e.viz_cfg),
             "ui": dict(self.ui),
+            "hold": self._hold_on,
             "np": {"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0", "kbps": "—"},
         }
 
@@ -651,6 +823,75 @@ class AppCore:
                 "bands": bands, "level": float(e.viz_level), "beat": beat, "np": np}
 
 
+def _tray_image():
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([3, 3, 60, 60], radius=12, fill=(22, 24, 27, 255), outline=(0, 0, 0, 255))
+    amber = (232, 176, 75, 255)
+    d.ellipse([18, 18, 46, 46], outline=amber, width=3)
+    d.ellipse([28, 28, 36, 36], fill=amber)
+    return img
+
+
+def _start_tray(app):
+    try:
+        import pystray
+    except Exception:
+        return
+    en = (app.ui.get("lang") == "en")
+    L = (lambda ru, eng: eng if en else ru)
+
+    def show(icon=None, item=None):
+        app.show_main()
+
+    def toggle_mini(icon=None, item=None):
+        app.toggle_mini()
+
+    def play(icon=None, item=None):
+        app.media_playpause()
+
+    def nxt(icon=None, item=None):
+        app.media_next()
+
+    def prev(icon=None, item=None):
+        app.media_prev()
+
+    def quit_(icon=None, item=None):
+        app.quit_app()
+
+    menu = pystray.Menu(
+        pystray.MenuItem(L("Показать окно", "Show window"), show, default=True),
+        pystray.MenuItem(L("Мини-плеер", "Mini player"), toggle_mini),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem(L("Плей / Пауза", "Play / Pause"), play),
+        pystray.MenuItem(L("Вперёд", "Next"), nxt),
+        pystray.MenuItem(L("Назад", "Previous"), prev),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem(L("Выход", "Exit"), quit_),
+    )
+    try:
+        icon = pystray.Icon("ChannelSplitter", _tray_image(),
+                            "Channel Splitter — Errarium", menu)
+        app._tray = icon
+        icon.run()
+    except Exception:
+        pass
+
+
+def _post_start(app):
+    # мини-плеер в правый нижний угол + трей
+    try:
+        import ctypes
+        sw = ctypes.windll.user32.GetSystemMetrics(0)
+        sh = ctypes.windll.user32.GetSystemMetrics(1)
+        if app._mini is not None:
+            app._mini.move(sw - 384, sh - 168)
+    except Exception:
+        pass
+    _start_tray(app)
+
+
 def main():
     core_app = AppCore()
     win = webview.create_window(
@@ -661,6 +902,26 @@ def main():
         background_color="#0b0b0c",
     )
     core_app._win = win
+
+    mini = webview.create_window(
+        "Channel Splitter — Mini",
+        url=_asset("mini.html"),
+        js_api=core_app,
+        width=360, height=98, resizable=False, frameless=True,
+        easy_drag=False, on_top=True, background_color="#111315",
+    )
+    core_app._mini = mini
+
+    def on_closing():
+        # крестик главного окна → сворачиваем в трей (не выходим)
+        if core_app._quitting:
+            return True
+        try:
+            win.hide()
+        except Exception:
+            pass
+        core_app._main_hidden = True
+        return False
 
     def on_closed():
         try:
@@ -676,8 +937,15 @@ def main():
                 core_app.gpu.stop()
             except Exception:
                 pass
+        try:
+            if core_app._tray is not None:
+                core_app._tray.stop()
+        except Exception:
+            pass
+
+    win.events.closing += on_closing
     win.events.closed += on_closed
-    webview.start()
+    webview.start(_post_start, core_app)
 
 
 if __name__ == "__main__":

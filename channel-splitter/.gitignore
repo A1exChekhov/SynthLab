@@ -11,3 +11,5 @@ releases/
 shot*.png
 app_out.log
 app_err.log
+app_web/_preview.html
+.claude/launch.json

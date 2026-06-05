@@ -2,7 +2,7 @@
 ; Build:  ISCC installer.iss   ->  installer_out\ChannelSplitter-Setup.exe
 
 #define MyAppName "Channel Splitter"
-#define MyAppVersion "2.0"
+#define MyAppVersion "2.1"
 #define MyAppPublisher "Errarium"
 #define MyAppExeName "ChannelSplitter.exe"
 
@@ -41,6 +41,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "dist\ChannelSplitter.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "README.ru.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -49,3 +50,19 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+{ Язык, выбранный в мастере установки, передаётся приложению через lang.txt
+  в пользовательской папке настроек (тот же путь, что и settings.json). }
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Dir, Code: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if ActiveLanguage() = 'russian' then Code := 'ru' else Code := 'en';
+    Dir := ExpandConstant('{userappdata}\Errarium\ChannelSplitter');
+    ForceDirectories(Dir);
+    SaveStringToFile(Dir + '\lang.txt', Code, False);
+  end;
+end;

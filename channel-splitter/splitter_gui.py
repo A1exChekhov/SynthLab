@@ -72,6 +72,7 @@ def loopback_speakers():
 
 HOSTAPI_PREF = ["Windows WASAPI", "MME", "Windows DirectSound", "Windows WDM-KS"]
 SR = 48000
+CAL_CAP = 48000 * 2  # 2 c кольцевой буфер выхода (для HOLD-автоподстройки)
 BLOCK = 960          # ~20 ms blocks — fewer glitches with Bluetooth
 MAXBUF = 60          # deeper ring buffer to absorb clock drift
 MIN_DB = -48.0
@@ -262,6 +263,8 @@ class OutputSpk:
         self.delay_ms = 0.0          # latency-compensation delay
         self.delay_samples = 0
         self.inv = False             # phase invert (fix anti-phase between speakers)
+        self.cal_ring = None         # кольцевой буфер выхода для HOLD
+        self.cal_w = 0
 
     def set_delay(self, ms):
         self.delay_ms = max(0.0, float(ms))
@@ -286,6 +289,7 @@ class Engine:
         self.master = 1.0
         self._t0 = 0.0          # момент старта — для плавного fade-in
         self._fade_dur = 0.6    # сек: защита от громкого звука при включении
+        self.cal_capture = False  # пишем ли выход в кольцевые буферы (для HOLD)
         # EQ + effects (each effect has its own on/off)
         self.eq_on = False
         self.eq_gains = [0.0] * len(EQ_FREQS)
@@ -606,6 +610,29 @@ class Engine:
             st[k] = ext[frames:]
         return x
 
+    def _cap(self, out, sig):
+        """Записать выходной сигнал колонки в кольцевой буфер (для HOLD)."""
+        cr = out.cal_ring
+        if cr is None or cr.shape[0] != CAL_CAP:
+            cr = np.zeros(CAL_CAP, dtype=np.float32); out.cal_ring = cr; out.cal_w = 0
+        n = sig.shape[0]
+        if n >= CAL_CAP:
+            cr[:] = sig[-CAL_CAP:]; out.cal_w = 0
+            return
+        w = out.cal_w; end = w + n
+        if end <= CAL_CAP:
+            cr[w:end] = sig
+        else:
+            k = CAL_CAP - w; cr[w:] = sig[:k]; cr[:end - CAL_CAP] = sig[k:]
+        out.cal_w = end % CAL_CAP
+
+    def cal_snapshot(self, out):
+        cr = out.cal_ring
+        if cr is None:
+            return None
+        w = out.cal_w
+        return np.concatenate([cr[w:], cr[:w]])
+
     def _out_cb(self, out, tone_hz):
         state = {"sp": {}, "ph": 0}
 
@@ -637,6 +664,8 @@ class Engine:
                 R = self._chain(out, state, sumR, frames, "R")
                 if out is self._spec_src:
                     self._update_spectrum((L + R) * 0.5)
+                if self.cal_capture:
+                    self._cap(out, ((L + R) * 0.5).astype(np.float32))
                 out.peak = float(max(np.max(np.abs(L)) if L.size else 0.0,
                                      np.max(np.abs(R)) if R.size else 0.0))
                 for c in range(nch):
@@ -647,6 +676,8 @@ class Engine:
                 mix = self._chain(out, state, mix, frames, "m")
                 if out is self._spec_src:
                     self._update_spectrum(mix)
+                if self.cal_capture:
+                    self._cap(out, mix)
                 out.peak = float(np.max(np.abs(mix))) if mix.size else 0.0
                 outdata[:] = np.repeat(mix.reshape(-1, 1), nch, axis=1)
 
