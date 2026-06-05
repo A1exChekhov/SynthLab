@@ -451,6 +451,8 @@ class AppCore:
                     await s.try_skip_next_async()
                 elif cmd == "prev":
                     await s.try_skip_previous_async()
+                elif cmd == "stop":
+                    await s.try_stop_async()
                 return True
             return asyncio.run(go())
         except Exception:
@@ -464,6 +466,9 @@ class AppCore:
 
     def media_prev(self):
         return self._media_cmd("prev")
+
+    def media_stop(self):
+        return self._media_cmd("stop")
 
     def calibrate(self, mic_label=None):
         """Авто-выравнивание задержек по микрофону: chirp на каждый выход →

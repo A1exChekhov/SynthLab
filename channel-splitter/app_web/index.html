@@ -39,6 +39,7 @@
       radial-gradient(circle at calc(100% - 13px) 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
       radial-gradient(circle at 13px calc(100% - 13px),#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
       radial-gradient(circle at calc(100% - 13px) calc(100% - 13px),#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      linear-gradient(118deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,0) 40%),
       linear-gradient(180deg,var(--face-1),var(--face-2)),
       repeating-linear-gradient(90deg,rgba(255,255,255,.016) 0 1px,transparent 1px 4px);
     border:1px solid var(--line);border-radius:3px;
@@ -60,10 +61,13 @@
   .by b{color:var(--amber);font-weight:400}
 
   /* ===== Модуль-плеер (табло «сейчас играет») ===== */
-  /* транспортные клавиши по центру панели плеера — широкие, как на реальных плеерах */
-  .transport-keys{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;gap:6px;z-index:4}
-  .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:13px;letter-spacing:.05em}
-  .mkey-play{width:72px}
+  /* транспортные клавиши по центру панели плеера — широкие, в утопленной площадке */
+  .transport-keys{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;
+    align-items:center;gap:6px;z-index:4;padding:3px 6px;border-radius:5px;
+    background:rgba(0,0,0,.24);box-shadow:inset 0 2px 5px rgba(0,0,0,.55),0 1px 0 var(--hi)}
+  .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:17px;letter-spacing:.05em;line-height:1}
+  .mkey-play{width:72px;font-size:18px}
+  .mkey-stop{width:36px;font-size:14px;margin-left:12px}   /* стоп = половина ширины плэй, отделён */
   #mod-player .pbody{padding:5px 30px 8px}
   .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
   .screen{display:flex;align-items:center;gap:16px}
@@ -116,7 +120,7 @@
   .stack>section>.face{width:100%;height:100%}
   /* порядок в гибкой стойке (половинные встают парами) */
   #mod-player{order:1}#mod-src{order:2}#mod-out{order:3}#mod-eq{order:4}#mod-fx{order:5}#mod-viz{order:6}
-  .phead{display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 64px 0 26px;
+  .phead{position:relative;display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 64px 0 26px;
     border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
   .phead h3{margin:0;font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg)}
   /* hi-end фейсплейт-маркировка: марка · модель · функция */
@@ -217,7 +221,8 @@
   .band span{font-family:var(--cond);font-weight:300;font-size:10px;color:var(--sub);letter-spacing:.08em}
 
   /* ===== Транспорт ===== */
-  .transport{display:flex;align-items:center;gap:16px;margin-top:10px;padding:0 26px;height:124px}
+  .transport{display:flex;flex-direction:column;justify-content:center;gap:10px;margin-top:10px;padding:0 26px;height:124px}
+  .transport-row{display:flex;align-items:center;gap:16px}
   .power{display:inline-flex;align-items:center;gap:9px;height:30px;min-width:106px;padding:0 18px;border-radius:2px;cursor:pointer;border:1px solid #000;
     font-family:var(--cond);font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#dadcd8;
     background:linear-gradient(180deg,#2c3036,#191b1e);
@@ -339,6 +344,7 @@
       radial-gradient(circle at calc(100% - 13px) 13px,#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
       radial-gradient(circle at 13px calc(100% - 13px),#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
       radial-gradient(circle at calc(100% - 13px) calc(100% - 13px),#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
+      linear-gradient(118deg,rgba(255,255,255,.6) 0%,rgba(255,255,255,.05) 34%,rgba(0,0,0,.06) 80%),
       linear-gradient(180deg,#e7e8e4,#cacbc7),
       repeating-linear-gradient(90deg,rgba(255,255,255,.55) 0 1px,rgba(0,0,0,.04) 1px 3px)}
   body.theme-silver .phead,body.theme-silver .row{box-shadow:0 1px 0 rgba(255,255,255,.6);border-bottom-color:#aaaca7}
@@ -406,6 +412,7 @@
             <button class="btn mkey" id="md-prev" title="Предыдущий">⏮</button>
             <button class="btn mkey mkey-play" id="md-play" title="Плей / Пауза">⏯</button>
             <button class="btn mkey" id="md-next" title="Следующий">⏭</button>
+            <button class="btn mkey mkey-stop" id="md-stop" title="Стоп">⏹</button>
           </div>
           <div class="actions"><button class="btn eject" onclick="setVis('mod-player',false)">✕</button></div></div>
         <div class="pbody player-body">
@@ -510,17 +517,21 @@
 
   <!-- Транспорт / Master -->
   <div class="face transport u-half">
-    <button class="power" id="btn-power"><span class="led-dot" id="power-led"></span> <span id="power-txt">OFF</span></button>
-    <div class="stat" id="transport-stat">stopped</div>
-    <div class="master"><span class="stat">Master</span>
-      <div class="fader" id="master-fader"><div class="trk"></div><div class="cap"></div></div>
-      <span class="led" id="master-led">100</span></div>
-    <div class="tdelays" id="transport-delays"></div>
-    <div class="feature">
-      <button class="btn" id="btn-devices">Devices</button>
-      <button class="btn" id="btn-calib">Calibrate</button>
-      <button class="btn" id="btn-fx">Effects</button>
-      <button class="btn" id="btn-viz">Visualizer</button>
+    <div class="transport-row">
+      <button class="power" id="btn-power"><span class="led-dot" id="power-led"></span> <span id="power-txt">OFF</span></button>
+      <div class="stat" id="transport-stat">stopped</div>
+      <div class="master"><span class="stat">Master</span>
+        <div class="fader" id="master-fader"><div class="trk"></div><div class="cap"></div></div>
+        <span class="led" id="master-led">100</span></div>
+      <div class="tdelays" id="transport-delays"></div>
+    </div>
+    <div class="transport-row">
+      <div class="feature">
+        <button class="btn" id="btn-devices">Devices</button>
+        <button class="btn" id="btn-calib">Calibrate</button>
+        <button class="btn" id="btn-fx">Effects</button>
+        <button class="btn" id="btn-viz">Visualizer</button>
+      </div>
     </div>
   </div>
 

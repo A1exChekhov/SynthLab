@@ -389,6 +389,7 @@ function wire(){
   $('md-prev').onclick=()=>API.media_prev();
   $('md-play').onclick=()=>API.media_playpause();
   $('md-next').onclick=()=>API.media_next();
+  $('md-stop').onclick=()=>API.media_stop();
   document.querySelectorAll('#cols-seg button').forEach(b=>{ b.onclick=()=>{ setCols(parseInt(b.dataset.c)); }; });
   document.querySelectorAll('#theme-seg button').forEach(b=>{ b.onclick=()=>{ setTheme(b.dataset.t); }; });
   $('btn-eq-on').onclick=()=>{ ST.eq.on=!ST.eq.on; API.set_eq_on(ST.eq.on).then(()=>renderEQ()); };
