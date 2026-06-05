@@ -35,8 +35,8 @@ function fitWindow(){
   try{
     const wrap=document.querySelector('.wrap');
     if(!wrap || !API) return;
-    let w=Math.ceil(wrap.scrollWidth), h=Math.ceil(wrap.scrollHeight);
-    if(window.screen){ w=Math.min(w, screen.availWidth); h=Math.min(h, screen.availHeight); }
+    let w=Math.ceil(wrap.offsetWidth), h=Math.ceil(wrap.offsetHeight);
+    if(window.screen){ w=Math.min(w, screen.availWidth-20); h=Math.min(h, screen.availHeight-70); }
     API.resize_window(w, h);
   }catch(e){}
 }

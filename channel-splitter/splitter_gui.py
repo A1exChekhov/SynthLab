@@ -284,6 +284,8 @@ class Engine:
         self.test_left = True
         self.test_right = True
         self.master = 1.0
+        self._t0 = 0.0          # момент старта — для плавного fade-in
+        self._fade_dur = 0.6    # сек: защита от громкого звука при включении
         # EQ + effects (each effect has its own on/off)
         self.eq_on = False
         self.eq_gains = [0.0] * len(EQ_FREQS)
@@ -590,7 +592,7 @@ class Engine:
                 st[k] = np.zeros((xs.shape[0], 2))
             x, st[k] = sosfilt(xs, x, zi=st[k])
         g = 0.0 if out.mute else out.vol
-        x = (x * g * self.master).astype(np.float32)
+        x = (x * g * self.master * self._fadeval()).astype(np.float32)
         if out.inv:
             x = -x
         dsamp = out.delay_samples
@@ -765,7 +767,20 @@ class Engine:
                     pass
             raise e
         self.streams = streams
+        self._t0 = time.perf_counter()   # запустить fade-in (мягкий старт)
         self.running = True
+
+    def _fadeval(self):
+        """Плавный разгон громкости 0→1 при включении (ease-in) — защита от громкого старта."""
+        d = self._fade_dur
+        if d <= 0:
+            return 1.0
+        f = (time.perf_counter() - self._t0) / d
+        if f <= 0.0:
+            return 0.0
+        if f >= 1.0:
+            return 1.0
+        return f * f
 
     def stop(self):
         for src in self.sources:

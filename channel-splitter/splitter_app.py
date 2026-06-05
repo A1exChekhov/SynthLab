@@ -484,7 +484,7 @@ def main():
         "Channel Splitter — Errarium",
         url=_asset("index.html"),
         js_api=core_app,
-        width=1332, height=929, min_size=(700, 480), resizable=False,
+        width=1332, height=900, min_size=(640, 420), resizable=True,
         background_color="#0b0b0c",
     )
     core_app._win = win
