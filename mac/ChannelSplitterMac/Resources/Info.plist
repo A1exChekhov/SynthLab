@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Channel Splitter</string>
+    <key>CFBundleDisplayName</key>
+    <string>Channel Splitter</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.errarium.channelsplitter</string>
+    <key>CFBundleVersion</key>
+    <string>2.1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>2.1</string>
+    <key>CFBundleExecutable</key>
+    <string>ChannelSplitter</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Для автокалибровки задержек колонок приложение измеряет звук через микрофон.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Источник «System Audio» захватывает то, что играет на Mac, и раздаёт на колонки.</string>
+</dict>
+</plist>

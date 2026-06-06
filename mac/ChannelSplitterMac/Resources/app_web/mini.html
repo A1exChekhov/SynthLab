@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Channel Splitter — Mini</title>
+<link rel="stylesheet" href="fonts/google.css">
+<link rel="stylesheet" href="fonts/dseg.css">
+<style>
+  :root{
+    --amber:#e8b04b; --grn:#3dff90; --fg:#dadcd8; --sub:#6c6f6a;
+    --sans:"Saira","Segoe UI",system-ui,sans-serif;
+    --cond:"Saira Condensed",var(--sans);
+    --led:"DSEG7 Classic","Saira",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent}
+  body{font-family:var(--sans);color:var(--fg);-webkit-font-smoothing:antialiased;user-select:none}
+  .mini{height:100vh;display:flex;flex-direction:column;border:1px solid #000;border-radius:6px;
+    background:
+      linear-gradient(118deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,0) 42%),
+      linear-gradient(180deg,#1b1d20,#111315),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.016) 0 1px,transparent 1px 4px);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 10px 26px -12px #000;overflow:hidden}
+  /* верхняя строка — экран «сейчас играет» + перетаскивание окна */
+  .drag{-webkit-app-region:drag;flex:1;display:flex;align-items:center;gap:10px;padding:6px 10px;min-height:0;
+    background:linear-gradient(180deg,#070a0b,#04070a);margin:6px 6px 0;border:1px solid #000;border-radius:4px;
+    box-shadow:inset 0 2px 9px rgba(0,0,0,.9)}
+  .pywebview-drag-region{-webkit-app-region:drag}
+  .dot{width:7px;height:7px;border-radius:50%;flex:none;background:#23262a;box-shadow:inset 0 0 2px #000}
+  .dot.on{background:var(--grn);box-shadow:0 0 7px var(--grn)}
+  .meta{flex:1;min-width:0}
+  .title{font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--grn);text-shadow:0 0 8px rgba(61,255,144,.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sub{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:#7fe0a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .clock{font-family:var(--led);color:var(--grn);font-size:11px;text-shadow:0 0 6px rgba(61,255,144,.5);
+    font-variant-numeric:tabular-nums;white-space:nowrap;flex:none}
+  /* нижняя строка — транспорт */
+  .keys{display:flex;align-items:center;gap:5px;padding:6px 8px}
+  .k{-webkit-app-region:no-drag;appearance:none;cursor:pointer;border:1px solid #000;border-radius:3px;
+    color:#c4c7c2;background:linear-gradient(180deg,#2a2e33,#191b1e);height:24px;min-width:34px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.11),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6);
+    font-size:14px;line-height:1;transition:.1s}
+  .k:hover{color:#fff;background:linear-gradient(180deg,#31363c,#1f2226)}
+  .k:active{transform:translateY(1px)}
+  .k.play{min-width:46px;font-size:15px}
+  .k.sys{margin-left:auto;font-size:12px;color:var(--sub)}
+  .k.sys:hover{color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="mini">
+  <div class="drag pywebview-drag-region">
+    <span class="dot" id="m-dot"></span>
+    <div class="meta">
+      <div class="title" id="m-title">—</div>
+      <div class="sub" id="m-sub"></div>
+    </div>
+    <div class="clock"><span id="m-cur">0:00</span> <span style="color:#2a6e48">/</span> <span id="m-tot">0:00</span></div>
+  </div>
+  <div class="keys">
+    <button class="k" id="m-prev" title="Назад">⏮</button>
+    <button class="k" id="m-stop" title="Стоп">⏹</button>
+    <button class="k play" id="m-play" title="Плей / Пауза">⏯</button>
+    <button class="k" id="m-next" title="Вперёд">⏭</button>
+    <button class="k sys" id="m-show" title="Показать главное окно">▣</button>
+    <button class="k sys" id="m-hide" title="Скрыть мини-плеер">✕</button>
+  </div>
+</div>
+<script src="mini.js"></script>
+</body>
+</html>

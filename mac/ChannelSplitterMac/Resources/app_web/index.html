@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel Splitter — Errarium</title>
+<link rel="stylesheet" href="fonts/google.css">
+<link rel="stylesheet" href="fonts/dseg.css">
+<style>
+  /* ===== Проф. AV-панель: строго, тонко, чётко ===== */
+  :root{
+    --face-1:#1b1d20; --face-2:#141619; --inset:#0b0c0e; --line:#000;
+    --hi:rgba(255,255,255,.09);
+    --fg:#dadcd8; --fg-2:#9a9d98; --sub:#6c6f6a;
+    --amber:#e8b04b; --amber-dim:#6e5526;
+    --grn:#34d17a; --yel:#e8b04b; --red:#ee5a4a;
+    --sans:"Saira","Segoe UI",system-ui,sans-serif;
+    --cond:"Saira Condensed",var(--sans);
+    --led:"DSEG7 Classic","Saira",monospace;
+    --unit:258px;          /* X  — полная высота модуля (−20%) */
+    --unit-h:124px;        /* X/2 — половинная высота */
+  }
+  /* только два типоразмера высоты модулей */
+  .u-full,.u-half{height:100%}
+  .mod{display:flex;flex-direction:column}
+  .mod .pbody{flex:1;min-height:0;overflow:hidden}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:linear-gradient(180deg,#1a1c1f,#0e0f11),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);
+    color:var(--fg);font-family:var(--sans);font-weight:400;font-size:13px;line-height:1.4;
+    -webkit-font-smoothing:antialiased;letter-spacing:.01em;overflow:auto}
+  .wrap{width:1440px;margin:0 auto;padding:24px 24px 30px}
+  body.cols1 .wrap{width:738px}
+
+  .face{position:relative;background-repeat:no-repeat;background:
+      radial-gradient(circle at 13px 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at calc(100% - 13px) 13px,#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at 13px calc(100% - 13px),#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at calc(100% - 13px) calc(100% - 13px),#52555b 0 1.4px,#2b2e33 1.8px 3px,#070809 3.2px 5px,transparent 5.4px),
+      linear-gradient(118deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,0) 40%),
+      linear-gradient(180deg,var(--face-1),var(--face-2)),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.016) 0 1px,transparent 1px 4px);
+    border:1px solid var(--line);border-radius:3px;
+    box-shadow:inset 0 1px 0 var(--hi),0 8px 24px -14px #000}
+
+  /* индикаторный светодиод */
+  .led-dot{width:7px;height:7px;border-radius:50%;background:#23262a;flex:none;
+    box-shadow:inset 0 0 2px #000,0 0 0 1px #000}
+  .led-dot.on{background:var(--grn);box-shadow:0 0 7px var(--grn),inset 0 0 2px #fff8}
+  .led-dot.amber{background:var(--amber);box-shadow:0 0 7px var(--amber),inset 0 0 2px #fff8}
+
+  /* ===== Шапка ===== */
+  header{display:flex;align-items:center;justify-content:space-between;padding:13px 28px}
+  .brand{display:flex;align-items:center;gap:13px}
+  .mark{font-family:var(--cond);font-weight:300;font-size:23px;letter-spacing:.34em;text-transform:uppercase;color:#e7e9e5}
+  .mark b{color:var(--amber);font-weight:400}
+  .brand small{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.34em;text-transform:uppercase}
+  .by{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.26em;text-transform:uppercase}
+  .by b{color:var(--amber);font-weight:400}
+
+  /* ===== Модуль-плеер (табло «сейчас играет») ===== */
+  /* транспортные клавиши по центру панели плеера — широкие, в утопленной площадке */
+  .transport-keys{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;
+    align-items:center;gap:6px;z-index:4;padding:3px 6px;border-radius:5px;
+    background:rgba(0,0,0,.24);box-shadow:inset 0 2px 5px rgba(0,0,0,.55),0 1px 0 var(--hi)}
+  .transport-keys .mkey{min-width:0;width:58px;height:24px;padding:0;font-size:17px;letter-spacing:.05em;line-height:1}
+  .transport-keys .mkey-play{width:72px;font-size:18px}
+  .transport-keys .mkey-stop{width:36px;font-size:14px}   /* стоп между «назад» и «плей» */
+  #mod-player .pbody{padding:5px 30px 8px}
+  .player-body{display:grid;grid-template-columns:1fr 230px;gap:14px;height:100%;align-items:stretch}
+  .screen{display:flex;align-items:center;gap:16px}
+  .np-main{flex:1;min-width:0}
+  .np-time{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:7px;width:128px}
+  .np-clock{font-family:var(--led);color:#3dff90;font-size:13px;text-shadow:0 0 6px rgba(61,255,144,.5);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .np-clock .t-dim{color:#2a6e48}
+  .np-time .bar{width:100%;height:4px;border-radius:2px;background:#0a0d0f;border:1px solid #000;overflow:hidden;box-shadow:inset 0 1px 2px #000}
+  .np-time .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0a3d22,#3dff90)}
+  .screen{position:relative;background:linear-gradient(180deg,#070a0b,#04070a);border:1px solid #000;border-radius:3px;
+    box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025);padding:9px 16px;overflow:hidden}
+  .screen::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px)} /* лёгкие сканлайны */
+  .np-label{font-family:var(--cond);font-weight:400;font-size:9.5px;letter-spacing:.36em;text-transform:uppercase;color:var(--grn);
+    text-shadow:0 0 6px rgba(52,209,122,.5);display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .np-label .led-dot{width:6px;height:6px}
+  .np-label{margin-bottom:3px}
+  .np-title{font-family:var(--cond);font-weight:400;font-size:17px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--amber);text-shadow:0 0 9px rgba(232,176,75,.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .np-sub{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-2);margin-top:2px}
+  .prog{display:flex;align-items:center;gap:12px;margin-top:7px}
+  .prog .bar{flex:1;height:4px;border-radius:2px;background:#0a0d0f;border:1px solid #000;overflow:hidden;box-shadow:inset 0 1px 2px #000}
+  .prog .bar i{display:block;height:100%;width:38%;background:linear-gradient(90deg,#6e5526,var(--amber))}
+  .prog .t{font-family:var(--led);color:var(--amber);font-size:12px;text-shadow:0 0 6px rgba(232,176,75,.5)}
+  .params{display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;align-content:center;
+    background:linear-gradient(180deg,#0a0c0e,#070809);border:1px solid #000;border-radius:3px;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);padding:7px 12px}
+  .chip{display:flex;align-items:baseline;justify-content:space-between;
+    font-family:var(--cond);font-weight:400;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#aeb3ad}
+  .chip b{font-family:var(--cond);font-weight:500;color:#3dff90;font-size:12px;letter-spacing:.06em;
+    font-variant-numeric:tabular-nums;text-shadow:0 0 6px rgba(61,255,144,.45)}
+  .player-brand{position:absolute;top:11px;right:74px;font-family:var(--cond);font-weight:300;font-size:9px;
+    letter-spacing:.26em;text-transform:uppercase;color:var(--sub)}
+  .player-brand b{color:var(--amber);font-weight:400}
+  .pl-eject{top:10px;right:34px}
+
+  /* ===== Секции ===== */
+  /* ПРАВИЛО РАСКЛАДКИ:
+     • все модули ОДНОЙ ширины (равные колонки);
+     • если экран широкий — два столбца, если узкий — один (адаптивно);
+     • высота СТРОГО кратна единице: половина = 1 ряд, целый = 2 ряда;
+     • плотная упаковка заполняет пустоты. */
+  .stack{display:grid;grid-template-columns:repeat(2,690px);
+    grid-auto-rows:124px;grid-auto-flow:row dense;gap:12px}
+  body.cols1 .stack{grid-template-columns:690px}
+  .chooser,.transport{width:100%}
+  .stack>section{min-width:0}
+  .stack>section:has(.u-half){grid-row:span 1}
+  .stack>section:has(.u-full){grid-row:span 2}
+  .stack>section>.face{width:100%;height:100%}
+  /* порядок в гибкой стойке (половинные встают парами) */
+  #mod-player{order:1}#mod-src{order:2}#mod-out{order:3}#mod-eq{order:4}#mod-fx{order:5}#mod-viz{order:6}
+  .phead{position:relative;display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 64px 0 26px;
+    border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
+  .phead h3{margin:0;font-family:var(--cond);font-weight:400;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg)}
+  /* hi-end фейсплейт-маркировка: марка · модель · функция */
+  .fp{display:flex;align-items:baseline;gap:13px;min-width:0}
+  .fp{flex-wrap:nowrap}
+  .marque{display:flex;align-items:center;gap:6px;font-family:var(--cond);font-weight:500;font-size:12px;
+    letter-spacing:.36em;text-transform:uppercase;color:#e9ebe7;white-space:nowrap}
+  .marque::before{content:"◆";color:var(--amber);font-size:7px;text-shadow:0 0 5px rgba(232,176,75,.6)}
+  /* модельные номера — читаемый технический шрифт (DSEG7 уродует буквы: MX-840→ПН-840) */
+  .model{font-family:var(--cond);font-weight:500;font-size:13px;letter-spacing:.16em;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.4);white-space:nowrap}
+  .fn{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pbody{padding:4px 30px}
+  .actions{display:flex;gap:8px}
+
+  /* ===== Кнопки: нейтральные ч/б, 3D, одинакового размера ===== */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    height:27px;min-width:118px;padding:0 14px;border-radius:2px;border:1px solid #000;cursor:pointer;
+    font-family:var(--cond);font-weight:400;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#c4c7c2;
+    background:linear-gradient(180deg,#2a2e33,#191b1e);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.11),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6);
+    transition:background .12s,color .12s,box-shadow .08s,transform .06s}
+  .btn:hover{color:#fff;background:linear-gradient(180deg,#31363c,#1f2226)}
+  .btn:active{transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.7)}
+  .btn .led-dot{width:6px;height:6px}
+  /* активная (ON) кнопка — нейтральный фон, СВЕТЯЩИЕСЯ янтарные буквы */
+  .btn.on{color:var(--amber);text-shadow:0 0 9px rgba(232,176,75,.75);border-color:rgba(232,176,75,.5);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 -3px 5px rgba(0,0,0,.5),0 0 12px rgba(232,176,75,.16)}
+  .btn.on:hover{color:#ffd98a}
+  /* кнопки добавления: крупный заметный «+» */
+  .btn.add::before{content:"+";font-family:var(--cond);font-weight:600;font-size:17px;line-height:1;
+    color:var(--amber);text-shadow:0 0 8px rgba(232,176,75,.7);margin-right:-2px}
+  .btn.add:hover::before{color:#ffd98a}
+  body.theme-silver .btn.add::before{color:#1d7a47;text-shadow:0 0 6px rgba(50,200,120,.5)}
+
+  /* ===== Строка устройства =====
+     ПРАВИЛО ЕДИНОГО СТИЛЯ: все ряды во всех модулях используют ОДНУ сетку колонок —
+     [устройство | роль | фейдер | индикатор | значение]. Ручки и индикаторы стоят
+     на одинаковом расстоянии от краёв и выровнены строго друг над другом во всех
+     блоках. Если в ряду нет элемента (напр. нет роли у источника) — ставится пустая
+     ячейка-placeholder, а не меняется сетка. */
+  .row{display:grid;grid-template-columns:minmax(120px,1.5fr) 188px minmax(64px,1.2fr) minmax(84px,1.5fr) 54px 26px;
+    gap:10px;align-items:center;height:58px;border-bottom:1px solid #000;box-shadow:0 1px 0 var(--hi)}
+  .rrm{min-width:0;width:28px;height:28px;padding:0;font-size:12px;letter-spacing:0;color:#8a8d88}
+  .rrm:hover{color:#fff;border-color:#ee5a4a;background:rgba(238,90,74,.16)}
+  .row:last-child{border-bottom:0;box-shadow:none}
+  .dev{display:flex;align-items:center;gap:12px;min-width:0}
+  .dev .nm{font-weight:400;font-size:14px;letter-spacing:.03em;color:#e3e5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dev .meta{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-top:2px}
+
+  /* переключатель роли: нейтральные клавиши + LED активной */
+  .seg{display:inline-grid;grid-template-columns:repeat(4,1fr);width:188px;height:27px;
+    border:1px solid #000;border-radius:2px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 2px 3px rgba(0,0,0,.5)}
+  .seg button{position:relative;appearance:none;border:0;border-left:1px solid #000;cursor:pointer;
+    font-family:var(--cond);font-weight:400;font-size:11px;letter-spacing:.08em;color:var(--fg-2);
+    background:linear-gradient(180deg,#24272c,#17191c);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:.12s;
+    padding-top:5px}
+  .seg button:first-child{border-left:0}
+  .seg button:hover{color:#fff}
+  .seg button.on{color:var(--amber);text-shadow:0 0 7px rgba(232,176,75,.7);background:linear-gradient(180deg,#14161a,#1b1e22);box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
+  .seg button.on::before{content:"";position:absolute;left:50%;top:4px;transform:translateX(-50%);
+    width:13px;height:2px;border-radius:1px;background:var(--amber);box-shadow:0 0 6px var(--amber)}
+
+  /* ===== Реалистичный горизонтальный фейдер ===== */
+  .fader{position:relative;height:26px;display:flex;align-items:center}
+  .fader .trk{position:absolute;left:2px;right:2px;height:6px;border-radius:3px;background:var(--inset);
+    box-shadow:inset 0 1px 2px #000,inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px #000}
+  .fader .trk::before{content:"";position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:rgba(255,255,255,.10)}
+  .fader .cap{position:absolute;top:1px;left:var(--p,55%);transform:translateX(-50%);
+    width:14px;height:24px;border-radius:2px;border:1px solid #000;
+    background:linear-gradient(180deg,#42474e 0,#2a2e33 48%,#1b1e22 52%,#23262b 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 3px rgba(0,0,0,.6),0 3px 5px rgba(0,0,0,.7)}
+  .fader .cap::before{content:"";position:absolute;left:3px;right:3px;top:50%;height:1px;background:#000;
+    box-shadow:0 -3px 0 rgba(0,0,0,.5),0 3px 0 rgba(0,0,0,.5)}
+
+  /* ===== Трёхцветный сегментный LED (горизонтальный) ===== */
+  .vu{position:relative;height:11px;border-radius:2px;border:1px solid #000;overflow:hidden;
+    background:linear-gradient(90deg,var(--grn) 0 58%,var(--yel) 58% 84%,var(--red) 84% 100%);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
+  .vu::before{content:"";position:absolute;top:0;bottom:0;right:0;left:var(--v,60%);background:var(--inset);box-shadow:inset 2px 0 4px rgba(0,0,0,.6)}
+  .vu::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 5px,#000 5px 7px)}
+
+  /* ===== LED-цифры (семисегмент) ===== */
+  .led{font-family:var(--led);color:var(--amber);font-size:13px;letter-spacing:.04em;
+    text-shadow:0 0 7px rgba(232,176,75,.5);font-variant-numeric:tabular-nums;text-align:right}
+
+  /* ===== Графический EQ: фейдер + индикатор рядом ===== */
+  .eq{display:grid;grid-template-columns:repeat(12,1fr);align-items:end;padding:6px 0 0}
+  .band{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .vrow{display:flex;align-items:flex-end;gap:6px;height:160px}
+  /* вертикальный сегментный LED-индикатор полосы */
+  .vmeter{position:relative;width:4px;height:158px;border-radius:2px;border:1px solid #000;overflow:hidden;
+    background:linear-gradient(0deg,var(--grn) 0 58%,var(--yel) 58% 84%,var(--red) 84% 100%);box-shadow:inset 0 0 3px #000}
+  .vmeter::before{content:"";position:absolute;left:0;right:0;top:0;height:calc(100% - var(--v,50%));background:var(--inset)}
+  .vmeter::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 3px,#000 3px 4px)}
+  .vslot{position:relative;width:28px;height:158px}
+  .vslot .vtrk{position:absolute;left:50%;top:4px;bottom:4px;width:6px;transform:translateX(-50%);border-radius:3px;background:var(--inset);
+    box-shadow:inset 0 0 3px #000,inset 0 1px 2px #000,0 0 0 1px #000}
+  .vslot .vtrk::before{content:"";position:absolute;left:-5px;right:-5px;top:50%;height:1px;background:rgba(255,255,255,.12)}
+  .vslot .vcap{position:absolute;left:50%;transform:translate(-50%,-50%);top:var(--pos,45%);
+    width:22px;height:12px;border-radius:2px;border:1px solid #000;
+    background:linear-gradient(180deg,#454a51 0,#2c3035 48%,#1c1f23 52%,#24272c 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 3px rgba(0,0,0,.6),0 3px 5px rgba(0,0,0,.7)}
+  .vslot .vcap::before{content:"";position:absolute;left:3px;right:3px;top:50%;height:1px;background:#000;box-shadow:0 -3px 0 rgba(0,0,0,.45),0 3px 0 rgba(0,0,0,.45)}
+  .band span{font-family:var(--cond);font-weight:300;font-size:10px;color:var(--sub);letter-spacing:.08em}
+
+  /* ===== Транспорт ===== */
+  .transport{display:flex;flex-direction:column;justify-content:center;gap:10px;margin-top:10px;padding:0 26px;height:124px}
+  .transport-row{display:flex;align-items:center;gap:16px}
+  .power{display:inline-flex;align-items:center;gap:9px;height:30px;min-width:106px;padding:0 18px;border-radius:2px;cursor:pointer;border:1px solid #000;
+    font-family:var(--cond);font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#dadcd8;
+    background:linear-gradient(180deg,#2c3036,#191b1e);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 -3px 5px rgba(0,0,0,.5),0 2px 3px rgba(0,0,0,.6)}
+  .power:active{transform:translateY(1px)}
+  .power .led-dot{width:7px;height:7px}
+  .stat{font-family:var(--cond);font-weight:300;color:var(--sub);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
+  .master{display:flex;align-items:center;gap:12px;margin-left:6px}
+  .master .fader{width:150px}
+  /* задержки (ряд1) + фаза (ряд2) на нижней панели */
+  .tphase{display:flex;align-items:center;gap:8px}
+  .tphase .lbl{margin-right:2px}
+  .tdelays{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .td{display:flex;align-items:center;gap:5px}
+  .tdname{font-family:var(--cond);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-2);max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tdlbl{font-family:var(--cond);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
+  .tdval{font-family:var(--cond);font-weight:500;font-size:12px;color:var(--amber);min-width:24px;text-align:right;
+    font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 5px rgba(232,176,75,.35)}
+  .led,.val{font-variant-numeric:tabular-nums}
+  .td .ico{width:24px;height:24px;font-size:12px}
+  .feature{margin-left:auto;display:flex;gap:8px}
+  .feature .btn{min-width:120px;padding:0 12px}
+
+  /* ===== Выбор модулей стойки ===== */
+  .chooser{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;padding:11px 28px}
+  .chooser .lbl{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--sub);margin-right:6px}
+  .chip-tog{min-width:0;padding:0 12px;height:28px}
+  .chip-tog .led-dot{width:6px;height:6px}
+  /* eject — убрать модуль */
+  .eject,.ico{min-width:0;width:26px;height:26px;padding:0;font-size:12px;letter-spacing:0}
+  /* eject во ВСЕХ модулях — в одной точке (строго одна вертикаль) */
+  .eject{position:absolute;top:7px;right:30px;z-index:5}
+
+  /* ===== Спецэффекты: 2D-пэды + регуляторы ===== */
+  .fxpads{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:6px 0 2px}
+  .fxbody{display:flex;flex-direction:column;height:100%}
+  .fxpads{flex:1;min-height:0}
+  .pad{position:relative;height:100%;border:1px solid #000;border-radius:3px;background:#070a0b;overflow:hidden;
+    box-shadow:inset 0 2px 9px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.025)}
+  .pad::before{content:"";position:absolute;inset:0;
+    background:
+      linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.07) 50%,transparent calc(50% + .5px)),
+      linear-gradient(0deg,transparent calc(50% - .5px),rgba(255,255,255,.07) 50%,transparent calc(50% + .5px)),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.022) 0 1px,transparent 1px 22px),
+      repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 22px)}
+  .pad-t{position:absolute;top:8px;left:11px;z-index:2;font-family:var(--cond);font-weight:400;font-size:10px;
+    letter-spacing:.26em;text-transform:uppercase;color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.4)}
+  .pad-x{position:absolute;bottom:7px;right:11px;font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
+  .pad-y{position:absolute;bottom:7px;left:11px;font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--sub)}
+  .handle{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);z-index:3}
+  .handle::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;transform:translateX(-50%);background:rgba(232,176,75,.55);box-shadow:0 0 4px rgba(232,176,75,.5)}
+  .handle::after{content:"";position:absolute;top:50%;left:0;right:0;height:1px;transform:translateY(-50%);background:rgba(232,176,75,.55);box-shadow:0 0 4px rgba(232,176,75,.5)}
+  .handle b{position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%);background:var(--amber);box-shadow:0 0 9px var(--amber)}
+  .fxfaders{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:10px;padding-top:12px;border-top:1px solid #000;box-shadow:inset 0 1px 0 var(--hi)}
+  .fxf{display:flex;flex-direction:column;gap:8px}
+  .fxf .top{display:flex;align-items:baseline;justify-content:space-between}
+  .fxf .nm{font-family:var(--cond);font-weight:300;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-2)}
+  .phase{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid #000;box-shadow:inset 0 1px 0 var(--hi);flex-wrap:wrap}
+  .phase .lbl{font-family:var(--cond);font-weight:300;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--sub)}
+
+  /* ===== Цветомузыка: видео-экран в стойке ===== */
+  .vizbody{display:flex;flex-direction:column;height:100%}
+  .viz-screen{position:relative;flex:1;min-height:0;border:1px solid #000;border-radius:3px;overflow:hidden;
+    background:
+      radial-gradient(58% 78% at 34% 42%,rgba(25,195,214,.30),transparent 60%),
+      radial-gradient(66% 86% at 70% 60%,rgba(232,176,75,.26),transparent 60%),
+      radial-gradient(42% 60% at 52% 50%,rgba(52,209,122,.20),transparent 62%),
+      repeating-radial-gradient(circle at 50% 50%,rgba(255,255,255,.05) 0 1px,transparent 1px 26px),
+      #050607;
+    box-shadow:inset 0 2px 14px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.02)}
+  .viz-screen::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 2px,transparent 2px 4px)}
+  .viz-tag{position:absolute;top:10px;left:14px;z-index:2;font-family:var(--led);font-size:12px;color:var(--amber);text-shadow:0 0 7px rgba(232,176,75,.5)}
+  .viz-hint{position:absolute;bottom:10px;right:14px;z-index:2;font-family:var(--cond);font-weight:300;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#cfd2cd}
+  .seg.sm{width:auto;height:26px}
+  .seg.sm button{padding:0 12px}
+
+  .foot{margin-top:22px;font-family:var(--cond);font-weight:300;color:var(--sub);font-size:10px;letter-spacing:.2em;text-transform:uppercase;text-align:center}
+  .foot b{color:var(--amber)}
+  .concept{margin:0 0 22px;color:var(--sub);font-size:11px;letter-spacing:.04em;border-left:2px solid var(--amber-dim);padding:3px 0 3px 14px;font-family:var(--cond);font-weight:300}
+  .concept b{color:var(--amber);font-weight:400}
+  /* live canvas-визуализатор внутри модуля */
+  #viz-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .fxtog{cursor:pointer;user-select:none}
+  .fxtog.on{color:var(--amber);text-shadow:0 0 6px rgba(232,176,75,.4)}
+  .pad-t{cursor:pointer;user-select:none}
+  .pad.on .pad-t{color:var(--amber)}
+  .pad .handle{display:none}
+  .pad.on .handle{display:block}
+  .dev .nm[contenteditable]{outline:none}
+  select.devsel{appearance:none;background:linear-gradient(180deg,#1d2024,#141619);color:var(--fg);
+    border:1px solid #000;border-radius:3px;font-family:var(--cond);font-size:12px;letter-spacing:.04em;
+    padding:5px 8px;max-width:100%;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+  .meta select.devsel{font-size:10px;padding:2px 6px;color:var(--sub)}
+  .mute-on{color:var(--red)!important}
+  /* тёмный нативный выпадающий список */
+  select.devsel{color-scheme:dark}
+  .devsel option{background:#15171a;color:#dadcd8}
+  /* под-слайдеры (реверб: Size + Mix) */
+  /* реверб: Size + Mix в одну строку, короткие */
+  .fxrow2{display:flex;align-items:center;gap:7px;margin-top:5px}
+  .fxrow2 .fader{flex:1;min-width:0}
+  .fxrow2 .t2{font-family:var(--cond);font-weight:300;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--sub)}
+  .fxrow2 .led{font-size:11px;min-width:22px;text-align:right}
+
+  /* ===== Зелёные VFD-светодиоды дисплея «сейчас играет» ===== */
+  .np-title{color:#3dff90;text-shadow:0 0 9px rgba(61,255,144,.45)}
+  .np-sub{color:#7fe0a8}
+  .prog .t{color:#3dff90;text-shadow:0 0 6px rgba(61,255,144,.5)}
+  .prog .bar i{background:linear-gradient(90deg,#0a3d22,#3dff90)}
+  .chip b{color:#3dff90;text-shadow:0 0 6px rgba(61,255,144,.45)}
+
+  /* ===== Светлая тема Silver (серебристые блоки в стиле JVC) ===== */
+  body.theme-silver{color:#23252a;
+    background:linear-gradient(180deg,#cdd0cc,#b6b8b3),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.22) 0 1px,transparent 1px 3px)}
+  body.theme-silver .face{border:1px solid #9fa19c;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 6px 18px -12px rgba(0,0,0,.45);
+    background:
+      radial-gradient(circle at 13px 13px,#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at calc(100% - 13px) 13px,#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at 13px calc(100% - 13px),#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
+      radial-gradient(circle at calc(100% - 13px) calc(100% - 13px),#6f716d 0 1.4px,#b6b8b3 1.8px 3px,#6f716d 3.2px 5px,transparent 5.4px),
+      linear-gradient(118deg,rgba(255,255,255,.6) 0%,rgba(255,255,255,.05) 34%,rgba(0,0,0,.06) 80%),
+      linear-gradient(180deg,#e7e8e4,#cacbc7),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.55) 0 1px,rgba(0,0,0,.04) 1px 3px)}
+  body.theme-silver .phead,body.theme-silver .row{box-shadow:0 1px 0 rgba(255,255,255,.6);border-bottom-color:#aaaca7}
+  body.theme-silver .mark,body.theme-silver .marque,body.theme-silver .phead h3,
+  body.theme-silver .dev .nm{color:#1e2024}
+  body.theme-silver .fn,body.theme-silver .lbl,body.theme-silver .by,body.theme-silver .meta,
+  body.theme-silver .band span,body.theme-silver .foot,body.theme-silver .pad-x,body.theme-silver .pad-y,
+  body.theme-silver .fxf .nm,body.theme-silver .phase .lbl,body.theme-silver .stat{color:#5a5f63}
+  body.theme-silver .model,body.theme-silver .led{color:#26282c;text-shadow:none}
+  /* кнопки — серебристые клавиши, тёмный текст, активные зелёные */
+  body.theme-silver .btn{color:#2a2c30;border:1px solid #9fa19c;
+    background:linear-gradient(180deg,#eef0ec,#d3d5d0);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 5px rgba(0,0,0,.10),0 2px 3px rgba(0,0,0,.22)}
+  body.theme-silver .btn:hover{color:#000;background:linear-gradient(180deg,#f6f7f4,#dcded9)}
+  body.theme-silver .btn.on{color:#1d7a47;text-shadow:0 0 8px rgba(50,200,120,.55);border-color:#7fbf97}
+  body.theme-silver .power{color:#2a2c30;border:1px solid #9fa19c;
+    background:linear-gradient(180deg,#eef0ec,#d3d5d0);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 5px rgba(0,0,0,.1),0 2px 3px rgba(0,0,0,.22)}
+  body.theme-silver .rrm:hover{color:#a11;border-color:#c0473b;background:rgba(192,71,59,.12)}
+  /* сегменты */
+  body.theme-silver .seg{border-color:#9fa19c;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 3px rgba(0,0,0,.2)}
+  body.theme-silver .seg button{color:#54585c;background:linear-gradient(180deg,#e9ebe7,#d0d2cd);border-left-color:#b3b5b0}
+  body.theme-silver .seg button:hover{color:#000}
+  body.theme-silver .seg button.on{color:#1d7a47;text-shadow:0 0 7px rgba(50,200,120,.5);background:linear-gradient(180deg,#dfe1dc,#cdd0cb)}
+  body.theme-silver .seg button.on::before{background:#34c46f;box-shadow:0 0 6px #34c46f}
+  /* фейдеры — серебро */
+  body.theme-silver .fader .trk,body.theme-silver .vslot .vtrk{background:#aaaca7;box-shadow:inset 0 1px 2px rgba(0,0,0,.3),0 0 0 1px #8f918c}
+  body.theme-silver .fader .trk::before,body.theme-silver .vslot .vtrk::before{background:rgba(0,0,0,.18)}
+  body.theme-silver .fader .cap,body.theme-silver .vslot .vcap{border:1px solid #8f918c;
+    background:linear-gradient(180deg,#f2f3f0,#c6c8c3 52%,#d4d6d1);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 4px rgba(0,0,0,.32)}
+  body.theme-silver .fader .cap::before,body.theme-silver .vslot .vcap::before{background:#8f918c;box-shadow:0 -3px 0 #8f918c,0 3px 0 #8f918c}
+  /* выпадающие списки — светлые */
+  body.theme-silver select.devsel{color:#23252a;color-scheme:light;background:linear-gradient(180deg,#eef0ec,#d6d8d3);border-color:#9fa19c}
+  body.theme-silver .devsel option{background:#e8e9e5;color:#23252a}
+  /* дисплеи остаются тёмными (как окна на серебряном усилителе) — ничего не меняем */
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="chooser">
+    <span class="lbl" data-i18n="rack">Rack</span>
+    <button class="btn chip-tog" id="chip-mod-player" onclick="toggleMod('mod-player')"><span class="led-dot on"></span> Player</button>
+    <button class="btn chip-tog" id="chip-mod-out" onclick="toggleMod('mod-out')"><span class="led-dot on"></span> Matrix</button>
+    <button class="btn chip-tog" id="chip-mod-src" onclick="toggleMod('mod-src')"><span class="led-dot on"></span> Pre-Amp</button>
+    <button class="btn chip-tog" id="chip-mod-eq" onclick="toggleMod('mod-eq')"><span class="led-dot on"></span> EQ</button>
+    <button class="btn chip-tog" id="chip-mod-fx" onclick="toggleMod('mod-fx')"><span class="led-dot on"></span> DSP</button>
+    <button class="btn chip-tog" id="chip-mod-viz" onclick="toggleMod('mod-viz')"><span class="led-dot on"></span> Analyzer</button>
+    <span style="flex:1"></span>
+    <span class="lbl" data-i18n="theme">Тема</span>
+    <div class="seg sm" id="theme-seg"><button class="on" data-t="dark">Dark</button><button data-t="silver">Silver</button></div>
+    <span class="lbl" style="margin-left:10px" data-i18n="layout">Колонки</span>
+    <div class="seg sm" id="cols-seg"><button data-c="1">1</button><button class="on" data-c="2">2</button></div>
+  </div>
+
+  <div class="stack" style="margin-top:10px">
+
+    <!-- Плеер -->
+    <section id="mod-player">
+      <div class="face mod u-half">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">MS-110</span></div>
+          <div class="transport-keys">
+            <button class="btn mkey" id="md-prev" data-i18n-title="tip_prev" title="Предыдущий">⏮</button>
+            <button class="btn mkey mkey-stop" id="md-stop" data-i18n-title="tip_stop" title="Стоп">⏹</button>
+            <button class="btn mkey mkey-play" id="md-play" data-i18n-title="tip_play" title="Плей / Пауза">⏯</button>
+            <button class="btn mkey" id="md-next" data-i18n-title="tip_next" title="Следующий">⏭</button>
+          </div>
+          <div class="actions"><button class="btn eject" onclick="setVis('mod-player',false)">✕</button></div></div>
+        <div class="pbody player-body">
+          <div class="screen">
+            <div class="np-main">
+              <div class="np-label"><span class="led-dot on" id="np-led"></span> <span id="np-src">Now Playing</span></div>
+              <div class="np-title" id="np-title">—</div>
+              <div class="np-sub" id="np-sub"></div>
+            </div>
+            <div class="np-time">
+              <div class="np-clock"><span class="t" id="np-cur">0:00</span> <span class="t-dim">/</span> <span class="t" id="np-tot">0:00</span></div>
+              <div class="bar"><i id="np-bar"></i></div>
+            </div>
+          </div>
+          <div class="params" id="player-params"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Выходы -->
+    <section id="mod-out">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">MX-840</span><span class="fn">Output Matrix</span></div>
+          <div class="actions"><button class="btn add" id="btn-add-out" data-i18n="add_output">Output</button><button class="btn eject" onclick="setVis('mod-out',false)">✕</button></div></div>
+        <div class="pbody" id="rows-out"></div>
+      </div>
+    </section>
+
+    <!-- Источники -->
+    <section id="mod-src">
+      <div class="face mod u-half">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">PA-220</span><span class="fn">Preamplifier</span></div>
+          <div class="actions">
+            <button class="btn add" id="btn-add-sys" data-i18n="add_system" data-i18n-title="tip_add_sys">System</button>
+            <button class="btn add" id="btn-add-src" data-i18n="add_source" data-i18n-title="tip_add_src">Source</button>
+            <button class="btn eject" onclick="setVis('mod-src',false)">✕</button>
+          </div></div>
+        <div class="pbody" id="rows-src"></div>
+      </div>
+    </section>
+
+    <!-- Эквалайзер -->
+    <section id="mod-eq">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">EQ-12</span><span class="fn">Graphic Equalizer</span></div>
+          <div class="actions">
+            <button class="btn" id="btn-eq-on">EQ Off</button>
+            <button class="btn" id="btn-eq-presets" data-i18n="presets">Presets</button>
+            <button class="btn" id="btn-eq-reset" data-i18n="reset">Reset</button>
+            <button class="btn eject" onclick="setVis('mod-eq',false)">✕</button>
+          </div></div>
+        <div class="pbody"><div class="eq" id="eq-bands"></div></div>
+      </div>
+    </section>
+
+    <!-- Спецэффекты -->
+    <section id="mod-fx">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">DSP-900</span><span class="fn">Effects Processor</span></div>
+          <div class="actions"><button class="btn eject" onclick="setVis('mod-fx',false)">✕</button></div></div>
+        <div class="pbody fxbody">
+          <div class="fxpads">
+            <div class="pad" id="pad-space" data-i18n-title="tip_space"><div class="pad-t">Space ⏻</div><div class="pad-y">↑ Depth</div><div class="pad-x">Width →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-pos" data-i18n-title="tip_position"><div class="pad-t">Position ⏻</div><div class="pad-y">↑ Near</div><div class="pad-x">Pan →</div><div class="handle"><b></b></div></div>
+            <div class="pad" id="pad-tone" data-i18n-title="tip_tone"><div class="pad-t">Tone ⏻</div><div class="pad-y">↑ Drive</div><div class="pad-x">Warm·Bright →</div><div class="handle"><b></b></div></div>
+          </div>
+          <div class="fxfaders">
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-comp" data-fx="comp" data-i18n-title="tip_comp">Compressor · OFF</span><span class="led" id="led-comp">-18</span></div><div class="fader" id="fader-comp" data-i18n-title="tip_comp"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-bass" data-fx="bass" data-i18n-title="tip_bass">Bass · OFF</span><span class="led" id="led-bass">0</span></div><div class="fader" id="fader-bass" data-i18n-title="tip_bass"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-mb" data-fx="mb" data-i18n-title="tip_monobass">Mono-Bass · OFF</span><span class="led" id="led-mb">120</span></div><div class="fader" id="fader-mb" data-i18n-title="tip_monobass"><div class="trk"></div><div class="cap"></div></div></div>
+            <div class="fxf"><div class="top"><span class="nm fxtog" id="lbl-rev" data-fx="rev" data-i18n-title="tip_reverb">Reverb · OFF</span></div>
+              <div class="fxrow2" data-i18n-title="tip_reverb">
+                <span class="t2">Sz</span><div class="fader" id="fader-revsize"><div class="trk"></div><div class="cap"></div></div><span class="led" id="led-revsize">50</span>
+                <span class="t2">Mx</span><div class="fader" id="fader-rev"><div class="trk"></div><div class="cap"></div></div><span class="led" id="led-rev">22</span>
+              </div></div>
+          </div>
+          <div class="phase"><span class="lbl">Phase Ø</span><div class="seg sm" id="phase-seg"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Цветомузыка -->
+    <section id="mod-viz">
+      <div class="face mod u-full">
+        <div class="phead">
+          <div class="fp"><span class="marque">Errarium</span><span class="model">SA-100</span><span class="fn">Spectrum Analyzer</span></div>
+          <div class="actions">
+            <div class="seg sm" id="viz-color"><button class="on" data-cm="0">Color</button><button data-cm="1">B&amp;W</button><button data-cm="2">Mono</button></div>
+            <button class="btn" id="btn-viz-open" data-i18n="open_gpu" data-i18n-title="tip_viz">Open GPU</button>
+            <button class="btn eject" onclick="setVis('mod-viz',false)">✕</button>
+          </div></div>
+        <div class="pbody vizbody">
+          <div class="viz-screen"><canvas id="viz-canvas"></canvas><div class="viz-hint">live preview · «Open GPU» — full screen / 4K</div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Транспорт / Master -->
+  <div class="face transport u-half">
+    <div class="transport-row">
+      <button class="power" id="btn-power"><span class="led-dot" id="power-led"></span> <span id="power-txt">OFF</span></button>
+      <div class="stat" id="transport-stat">stopped</div>
+      <div class="master"><span class="stat" data-i18n="master">Master</span>
+        <div class="fader" id="master-fader"><div class="trk"></div><div class="cap"></div></div>
+        <span class="led" id="master-led">100</span></div>
+      <div id="transport-hold"></div>
+      <div class="tdelays" id="transport-delays"></div>
+    </div>
+    <div class="transport-row">
+      <div class="tphase" id="transport-phase"></div>
+      <div class="feature">
+        <button class="btn" id="btn-devices" data-i18n="devices" data-i18n-title="tip_devices">Devices</button>
+        <button class="btn" id="btn-calib" data-i18n="calibrate" data-i18n-title="tip_calib">Calibrate</button>
+        <button class="btn" id="btn-fx" data-i18n="effects" data-i18n-title="tip_fx">Effects</button>
+        <button class="btn" id="btn-viz" data-i18n="visualizer" data-i18n-title="tip_viz">Visualizer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot" id="foot-about" style="cursor:pointer" title="About / О программе">© 2026 <b>Errarium™</b> · Channel Splitter</div>
+
+</div>
+
+<div id="preset-modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div class="face" style="width:480px;padding:20px 24px">
+    <div class="fp" style="margin-bottom:14px"><span class="marque">Errarium</span><span class="model">EQ-12</span><span class="fn">Presets</span></div>
+    <div id="preset-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:260px;overflow:auto"></div>
+    <div style="display:flex;gap:8px">
+      <input id="preset-name" data-i18n-ph="preset_ph" placeholder="Имя нового пресета…" style="flex:1;background:#0c0d0f;color:var(--fg);border:1px solid #000;border-radius:3px;padding:8px 10px;font-family:var(--cond);font-size:12px;letter-spacing:.04em;color-scheme:dark">
+      <button class="btn" id="preset-save" data-i18n="preset_save">Сохранить</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" id="preset-close" data-i18n="preset_close">Закрыть</button></div>
+  </div>
+</div>
+
+<div id="calib-modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div class="face" style="width:540px;padding:20px 24px">
+    <div class="fp" style="margin-bottom:14px"><span class="marque">Errarium</span><span class="model">CAL-1</span><span class="fn">Auto-Calibration</span></div>
+
+    <div id="calib-setup">
+      <div data-i18n="cal_intro" style="color:var(--fg-2);font-size:12px;margin-bottom:9px;font-family:var(--cond);letter-spacing:.06em">
+        Микрофон выровняет задержки между выходами. Поставь микрофон между колонок и нажми «Калибровать» (прозвучит тихий свип на каждую колонку).
+      </div>
+      <div data-i18n="cal_mic" style="color:var(--sub);font-size:10px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px">Микрофон</div>
+      <select id="calib-mic" class="devsel" style="width:100%;margin-bottom:16px"></select>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn" id="calib-cancel" data-i18n="cal_cancel">Отмена</button>
+        <button class="btn" id="calib-select" data-i18n="cal_select">Выбрать для HOLD</button>
+        <button class="btn" id="calib-run" data-i18n="cal_run">Калибровать</button>
+      </div>
+    </div>
+
+    <div id="calib-results" style="display:none">
+      <div data-i18n="cal_result" style="color:var(--fg-2);font-size:11px;margin-bottom:10px;font-family:var(--cond);letter-spacing:.06em">
+        Результат — задержки выровнены. Подстрой вручную (мс) при необходимости:
+      </div>
+      <div id="calib-rows" style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px;max-height:260px;overflow:auto"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn" id="calib-again" data-i18n="cal_again">Заново</button>
+        <button class="btn on" id="calib-done" data-i18n="cal_done">Готово</button>
+      </div>
+    </div>
+
+    <div id="calib-status" style="color:var(--fg-2);font-size:11px;letter-spacing:.04em;margin-top:12px;font-family:var(--cond);min-height:14px"></div>
+  </div>
+</div>
+
+<div id="about-modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div class="face" style="width:560px;padding:22px 26px">
+    <div class="fp" style="margin-bottom:16px"><span class="marque">Errarium</span><span class="model">CS-2.1</span><span class="fn" data-i18n="about_title">О программе</span></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+      <div class="mark" style="font-size:18px">CHANNEL <b>SPLITTER</b></div>
+      <span style="font-family:var(--cond);font-weight:500;color:var(--amber);font-size:13px;letter-spacing:.06em">v2.1</span>
+    </div>
+    <div data-i18n="about_desc" style="color:var(--fg-2);font-size:12px;line-height:1.6;font-family:var(--cond);letter-spacing:.04em;margin-bottom:16px">—</div>
+
+    <div style="color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:5px" data-i18n="lic_head">Лицензия</div>
+    <div data-i18n="lic_body" style="color:var(--fg-2);font-size:11px;line-height:1.55;font-family:var(--cond);letter-spacing:.03em;margin-bottom:16px;border-left:2px solid var(--amber-dim);padding-left:12px">—</div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px">
+      <div>
+        <div style="color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:5px" data-i18n="contact">Связь</div>
+        <a href="#" id="about-contact" style="font-family:var(--cond);font-weight:500;color:var(--amber);font-size:13px;letter-spacing:.04em;text-decoration:none;cursor:pointer">errarium_ai@gmail.com</a>
+      </div>
+      <div>
+        <div style="color:var(--sub);font-size:10px;letter-spacing:.22em;text-transform:uppercase;margin-bottom:5px" data-i18n="donate">Поддержать</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" id="about-donate-pp" style="min-width:96px">PayPal</button>
+          <button class="btn" id="about-donate-cr" style="min-width:96px">Crypto</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end"><button class="btn" id="about-close" data-i18n="close">Закрыть</button></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
