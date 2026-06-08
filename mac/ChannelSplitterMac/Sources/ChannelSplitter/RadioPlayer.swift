@@ -172,12 +172,29 @@ final class RadioPlayer: NSObject {
         config.fmtRate = srcASBD.mSampleRate
         config.fmtChannels = Int(srcASBD.mChannelsPerFrame)
         config.fmtCodec = streamCodec
+
+        // битрейт: если станция не прислала icy-br — берём из самого потока (AudioFileStream).
+        if bitrateKbps == 0 {
+            var br: UInt32 = 0
+            var brSize = UInt32(MemoryLayout<UInt32>.size)
+            if AudioFileStreamGetProperty(a, kAudioFileStreamProperty_BitRate, &brSize, &br) == noErr, br > 0 {
+                bitrateKbps = Int((Double(br) / 1000.0).rounded())
+            }
+        }
     }
 
     fileprivate func onPackets(_ numberBytes: UInt32, _ numberPackets: UInt32,
                                _ inputData: UnsafeRawPointer,
                                _ descs: UnsafeMutablePointer<AudioStreamPacketDescription>?) {
         guard ready, let conv = converter, numberPackets > 0 else { return }
+
+        // битрейт мог стать доступен позже готовности — добираем, пока 0.
+        if bitrateKbps == 0, let a = afs {
+            var br: UInt32 = 0; var s = UInt32(MemoryLayout<UInt32>.size)
+            if AudioFileStreamGetProperty(a, kAudioFileStreamProperty_BitRate, &s, &br) == noErr, br > 0 {
+                bitrateKbps = Int((Double(br) / 1000.0).rounded())
+            }
+        }
 
         // одна порция пакетов → конвертер. Выходной буфер с запасом по кадрам.
         let srcFPP = srcASBD.mFramesPerPacket > 0 ? Double(srcASBD.mFramesPerPacket) : 1152

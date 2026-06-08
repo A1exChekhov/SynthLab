@@ -36,6 +36,7 @@ const I18N = {
     stat_playing:'playing', out_short:'out',
     master:'Master', sync:'SYNC', phase:'PHASE', hold:'HOLD', ms:'ms', dly:'dly',
     devices:'Devices', calibrate:'Calibrate', effects:'Effects', visualizer:'Visualizer',
+    mini:'Mini', tip_mini:'Показать / скрыть мини-плеер',
     mute:'mute', sub:'sub', capture:'src', default_device:'— default device —',
     system_mix:'all system audio',
     none_paren:'(n/a)', no_mic:'(микрофон не найден)',
@@ -106,6 +107,7 @@ const I18N = {
     stat_playing:'playing', out_short:'out',
     master:'Master', sync:'SYNC', phase:'PHASE', hold:'HOLD', ms:'ms', dly:'dly',
     devices:'Devices', calibrate:'Calibrate', effects:'Effects', visualizer:'Visualizer',
+    mini:'Mini', tip_mini:'Show / hide the mini player',
     mute:'mute', sub:'sub', capture:'capture', default_device:'— default device —',
     system_mix:'all system audio',
     none_paren:'(missing)', no_mic:'(no microphone found)',
@@ -658,6 +660,9 @@ function meterLoop(){
       updateNP({ title: song||_radioStation.name||'Radio',
                  sub: (m.radio_stopped?'⏹ ':(m.radio_paused?'⏸ ':''))+(song?(_radioStation.name||'RADIO'):'RADIO'),
                  cur:curTxt, total:'LIVE', posfrac:0, art_id:'radio:'+_radioUrl });
+      // передаём текущую обложку песни в движок — чтобы мини-плеер показывал её, а не лого станции
+      const cover=_radioCover||(_radioStation&&_radioStation.favicon)||'';
+      if(cover!==_radioCoverPushed && API && API.set_radio_cover){ _radioCoverPushed=cover; API.set_radio_cover(cover); }
     } else if(src0.loopback){         // системный звук / приложение — now-playing из MediaRemote
       // Если выбран КОНКРЕТНЫЙ источник-приложение, а системный now-playing сейчас от ДРУГОГО
       // приложения (напр. при смене трека на миг всплывает пауз-нутая Музыка) — не обновляем,
@@ -792,6 +797,7 @@ function wire(){
   $('btn-viz-open').onclick=()=>API.open_viz();
   $('btn-fx').onclick=()=>{ const m=$('mod-fx'); if(m.style.display==='none'){ setVis('mod-fx',true);} m.scrollIntoView({behavior:'smooth'}); };
   $('btn-calib').onclick=openCalib;
+  const bm=$('btn-mini'); if(bm) bm.onclick=()=>{ if(API.toggle_mini) API.toggle_mini(); };
   $('calib-cancel').onclick=()=>{ $('calib-modal').style.display='none'; };
   $('calib-run').onclick=()=>{
     const sel=$('calib-mic'); const lbl=sel.options.length?sel.options[sel.selectedIndex].text:'';
@@ -1049,10 +1055,11 @@ function tunerAddToGroup(station){
 let _radioUrl=null, _radioStation=null, _radioStart=0, _radioSong='', _radioCover=null;
 let _srcSig=null;   // сигнатура активного источника (для авто-обновления после auto-follow)
 let _radioWasActive=false;   // было ли радио активно (для сброса данных при его остановке)
+let _radioCoverPushed=null;  // последняя обложка, переданная в движок (для мини-плеера)
 let _radioPauseAt=0, _radioPausedAccum=0;   // учёт пауз радио для счётчика времени
 // Сброс состояния радио в UI — вызывается при выборе обычного источника, чтобы
 // в окне now-playing/формата не висели старые радио-данные (станция/обложка/трек).
-function clearRadioState(){ _radioUrl=null; _radioStation=null; _radioSong=''; _radioCover=null; _lastArtId=null; }
+function clearRadioState(){ _radioUrl=null; _radioStation=null; _radioSong=''; _radioCover=null; _lastArtId=null; _radioCoverPushed=null; }
 async function fetchRadioCover(song){
   try{
     const r=await fetch('https://itunes.apple.com/search?limit=1&entity=song&term='+encodeURIComponent(song));

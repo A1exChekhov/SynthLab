@@ -9,7 +9,7 @@ function wire(){
   $('m-play').onclick=()=>API.media_playpause();
   $('m-next').onclick=()=>API.media_next();
   $('m-stop').onclick=()=>API.media_stop();
-  $('m-show').onclick=()=>{ if(API.show_main) API.show_main(); };
+  $('m-show').onclick=()=>{ if(API.toggle_main) API.toggle_main(); else if(API.show_main) API.show_main(); };
   $('m-hide').onclick=()=>{ if(API.hide_mini) API.hide_mini(); };
 
   // Свободное перетаскивание окна (WKWebView не понимает -webkit-app-region:drag,

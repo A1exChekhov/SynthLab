@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
     // Радио: имя станции/лого/старт — чтобы now-playing радио был доступен и мини-плееру.
     var radioStationName = ""
     var radioFavicon = ""
+    var radioCoverURL = ""        // обложка текущей песни (из главного окна) — для мини-плеера
     var radioStartTime = Date()
 
     // Auto-follow: приоритет последнего запущенного приложения-источника.

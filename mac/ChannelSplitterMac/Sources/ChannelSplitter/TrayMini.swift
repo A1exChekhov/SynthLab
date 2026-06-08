@@ -92,6 +92,12 @@ final class AppChrome: NSObject {
         mainWindow?.orderOut(nil)
     }
 
+    /// Кнопка в мини-плеере: показать ИЛИ скрыть главное окно.
+    func toggleMain() {
+        if let w = mainWindow, w.isVisible, !w.isMiniaturized { hideMain() }
+        else { showMain() }
+    }
+
     // MARK: - Mini player
 
     func showMini() {

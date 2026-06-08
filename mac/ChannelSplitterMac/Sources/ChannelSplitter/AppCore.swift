@@ -64,6 +64,7 @@ extension AppModel {
 
         // ---- window / tray / mini player ----
         case "show_main":   AppChrome.shared?.showMain();   resolve(nil)
+        case "toggle_main": AppChrome.shared?.toggleMain(); resolve(nil)
         case "hide_main":   AppChrome.shared?.hideMain();   resolve(nil)
         case "show_mini":   AppChrome.shared?.showMini();   resolve(nil)
         case "hide_mini":   AppChrome.shared?.hideMini();   resolve(nil)
@@ -96,8 +97,12 @@ extension AppModel {
             }
             resolve(false)
         case "now_playing_art":
-            // Радио — лого станции (URL), иначе обложка системного now-playing (data URL).
-            resolve(engine.hasRadio ? (radioFavicon.isEmpty ? nil : radioFavicon) : NowPlaying.shared.artworkDataURL())
+            // Радио — обложка песни (из главного окна) или лого станции; иначе обложка
+            // системного now-playing (data URL).
+            if engine.hasRadio {
+                let u = radioCoverURL.isEmpty ? radioFavicon : radioCoverURL
+                resolve(u.isEmpty ? nil : u)
+            } else { resolve(NowPlaying.shared.artworkDataURL()) }
 
         case "set_ui":
             if let k = aStr(args, 0) { uiState[k] = args.count > 1 ? args[1] : NSNull() ; saveSettings() }
@@ -134,6 +139,9 @@ extension AppModel {
             if let u = aStr(args, 0), !u.isEmpty {
                 tunerPlay(url: u, name: aStr(args, 1) ?? "", favicon: aStr(args, 2) ?? "")
             }
+            resolve(nil)
+        case "set_radio_cover":
+            radioCoverURL = aStr(args, 0) ?? ""
             resolve(nil)
         case "tuner_stop":
             tunerStop()
@@ -253,6 +261,7 @@ extension AppModel {
     func tunerStop() {
         guard let s = sources.first, s.radio else { return }
         s.radio = false; s.radioURL = ""; s.loopback = true; s.name = "System Audio"
+        radioStationName = ""; radioFavicon = ""; radioCoverURL = ""
         sources = sources
         reapply()
     }
@@ -422,7 +431,8 @@ extension AppModel {
             "title": song.isEmpty ? station : song,
             "sub":   song.isEmpty ? "RADIO" : station,
             "cur": cur, "total": "LIVE", "posfrac": 0,
-            "art_id": "radio:" + (sources.first?.radioURL ?? ""),
+            // art_id меняется при смене обложки → мини-плеер перетягивает её.
+            "art_id": "radio:" + (radioCoverURL.isEmpty ? radioFavicon : radioCoverURL),
         ]
     }
 

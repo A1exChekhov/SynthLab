@@ -197,10 +197,10 @@ final class Bridge: NSObject, WKScriptMessageHandler, NSWindowDelegate {
         "add_output","remove_output","set_output","add_source","add_loopback",
         "remove_source","set_source","set_input","toggle","test_output","set_eq","set_eq_on",
         "eq_reset","eq_presets","eq_save","eq_apply","eq_delete","set_fx","set_master",
-        "resize_window","show_main","hide_main","show_mini","hide_mini","toggle_mini","mini_move",
+        "resize_window","show_main","hide_main","toggle_main","show_mini","hide_mini","toggle_mini","mini_move",
         "quit_app","open_viz","set_viz","media_playpause","media_next","media_prev",
         "media_stop","hold_toggle","calibrate","get_state","meters","now_playing_art",
-        "tuner_play","tuner_stop"];
+        "tuner_play","tuner_stop","set_radio_cover"];
       var api = {};
       methods.forEach(function(m){
         api[m] = function(){ return call(m, Array.prototype.slice.call(arguments)); };
