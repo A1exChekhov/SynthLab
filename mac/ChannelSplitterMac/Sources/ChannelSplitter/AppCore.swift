@@ -95,7 +95,9 @@ extension AppModel {
                 NowPlaying.shared.seek(0)
             }
             resolve(false)
-        case "now_playing_art": resolve(NowPlaying.shared.artworkDataURL())
+        case "now_playing_art":
+            // Радио — лого станции (URL), иначе обложка системного now-playing (data URL).
+            resolve(engine.hasRadio ? (radioFavicon.isEmpty ? nil : radioFavicon) : NowPlaying.shared.artworkDataURL())
 
         case "set_ui":
             if let k = aStr(args, 0) { uiState[k] = args.count > 1 ? args[1] : NSNull() ; saveSettings() }
@@ -129,7 +131,9 @@ extension AppModel {
             setInput(kind: aStr(args, 0), value: aStr(args, 1))
             resolve(nil)
         case "tuner_play":
-            if let u = aStr(args, 0), !u.isEmpty { tunerPlay(url: u) }
+            if let u = aStr(args, 0), !u.isEmpty {
+                tunerPlay(url: u, name: aStr(args, 1) ?? "", favicon: aStr(args, 2) ?? "")
+            }
             resolve(nil)
         case "tuner_stop":
             tunerStop()
@@ -228,11 +232,12 @@ extension AppModel {
     }
 
     /// Tuner: ставит первый источник в режим интернет-радио и перезапускает движок.
-    func tunerPlay(url: String) {
+    func tunerPlay(url: String, name: String = "", favicon: String = "") {
         let s: SourceConfig
         if let first = sources.first { s = first }
         else { let n = SourceConfig(); n.intId = nextId(); sources = [n]; s = n }
         s.radio = true; s.radioURL = url; s.loopback = false; s.device = nil; s.lbName = ""; s.name = "Radio"
+        radioStationName = name; radioFavicon = favicon; radioStartTime = Date()
         sources = sources
         // Если системный звук НЕ добавлен отдельным (вторым) источником для микса —
         // ставим системный плеер на паузу, чтобы радио не накладывалось на него.
@@ -406,6 +411,21 @@ extension AppModel {
         ]
     }
 
+    /// Now-playing для активного радио (общий для главного окна и мини-плеера). nil = радио нет.
+    private func radioNowPlaying() -> [String: Any]? {
+        guard engine.hasRadio else { return nil }
+        let song = engine.radioTitle.trimmingCharacters(in: .whitespaces)
+        let station = radioStationName.isEmpty ? "Radio" : radioStationName
+        let e = max(0, Date().timeIntervalSince(radioStartTime))
+        let cur = String(format: "%d:%02d", Int(e) / 60, Int(e) % 60)
+        return [
+            "title": song.isEmpty ? station : song,
+            "sub":   song.isEmpty ? "RADIO" : station,
+            "cur": cur, "total": "LIVE", "posfrac": 0,
+            "art_id": "radio:" + (sources.first?.radioURL ?? ""),
+        ]
+    }
+
     func metersState() -> [String: Any] {
         var outs: [String: Double] = [:]
         for o in outputs { outs[String(o.intId)] = Double(o.peak) }
@@ -421,7 +441,7 @@ extension AppModel {
             "level": vizData["level"] ?? 0.0,
             "beat": vizData["beat"] ?? 0.0,
             "viz": vizData,
-            "np": NowPlaying.shared.npDict(),
+            "np": radioNowPlaying() ?? NowPlaying.shared.npDict(),
             "np_app": NowPlaying.shared.appName,   // какое приложение сейчас системный now-playing
             "radio_title": engine.radioTitle,
             "radio_paused": engine.radioPaused,

@@ -79,8 +79,13 @@ final class AppChrome: NSObject {
     // MARK: - Main window show / hide
 
     func showMain() {
+        NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
-        mainWindow?.makeKeyAndOrderFront(nil)
+        if let w = mainWindow {
+            if w.isMiniaturized { w.deminiaturize(nil) }   // развернуть из Dock
+            w.makeKeyAndOrderFront(nil)
+            w.orderFrontRegardless()
+        }
     }
 
     func hideMain() {

@@ -168,12 +168,14 @@ function setLang(l, persist){
 window.setLang = setLang;
 
 /* ---- module show/hide (chooser + eject) ---- */
-function setVis(id, vis){
+function setVis(id, vis, persist){
   const m = $(id); if(!m) return;
   m.style.display = vis ? '' : 'none';
   if(id==='mod-out') document.querySelectorAll('.mod-out-extra').forEach(s=>{ s.style.display = vis ? '' : 'none'; });
   const d = document.querySelector('#chip-'+id+' .led-dot');
   if(d) d.classList.toggle('on', vis);
+  // запоминаем выбор свёрнутых блоков между запусками
+  if(persist!==false && API && API.set_ui){ ST=ST||{}; ST.ui=ST.ui||{}; ST.ui.mods=ST.ui.mods||{}; ST.ui.mods[id]=vis; API.set_ui('mods', ST.ui.mods); }
   setTimeout(fitWindow, 50);
 }
 function toggleMod(id){ const m = $(id); setVis(id, m.style.display === 'none'); }
@@ -918,6 +920,8 @@ function tunerLoadGroups(){
   else { _radioGroups={A:{name:'A',list:[]},B:{name:'B',list:[]},C:{name:'C',list:[]}}; }
   _radioActive = (ST&&ST.ui&&ST.ui.radio_group) || 'A';
   if(!_radioGroups[_radioActive]) _radioActive='A';
+  // последняя станция (запоминается между запусками) — выбрана по умолчанию
+  if(!_radioSelected && ST&&ST.ui&&ST.ui.radio_last) _radioSelected = ST.ui.radio_last;
 }
 function tunerSaveGroups(){ if(API&&API.set_ui){ API.set_ui('radio_groups',_radioGroups); API.set_ui('radio_group',_radioActive); } }
 
@@ -1067,7 +1071,10 @@ function tunerPlay(s){
     return;
   }
   _radioUrl=url; _radioStation=s; _radioStart=Date.now(); _radioPauseAt=0; _radioPausedAccum=0;
-  if(API&&API.tuner_play) API.tuner_play(url).then(refresh).catch(()=>{});
+  _radioSelected=s;
+  if(API&&API.set_ui) API.set_ui('radio_last', s);   // запомнить последнюю станцию
+  // имя станции + лого передаём в движок — чтобы радио-now-playing был и у мини-плеера
+  if(API&&API.tuner_play) API.tuner_play(url, s.name||'', s.favicon||'').then(refresh).catch(()=>{});
   renderSavedGroup();
 }
 
@@ -1076,8 +1083,11 @@ function boot(){
   wire();
   setupAutoFit();
   refresh().then(()=>{
-    renderChooser();
     const u=(ST&&ST.ui)||{};
+    // восстановить свёрнутые блоки
+    const mods=u.mods||{};
+    ['mod-player','mod-out','mod-src','mod-eq','mod-fx','mod-viz'].forEach(id=>{ if(mods[id]===false) setVis(id,false,false); });
+    renderChooser();
     setLang(u.lang||'ru', false);
     setTheme(u.theme||'dark', false);
     setCols(u.cols||2, false);

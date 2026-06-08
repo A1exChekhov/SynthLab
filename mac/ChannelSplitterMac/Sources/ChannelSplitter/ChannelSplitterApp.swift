@@ -65,6 +65,11 @@ final class AppModel: ObservableObject {
     private var deviceSig = ""
     private var warnedManySpeakers = false
 
+    // Радио: имя станции/лого/старт — чтобы now-playing радио был доступен и мини-плееру.
+    var radioStationName = ""
+    var radioFavicon = ""
+    var radioStartTime = Date()
+
     // Auto-follow: приоритет последнего запущенного приложения-источника.
     private var lastPlayingApps: Set<String> = []
     private var autoFollowSeeded = false
