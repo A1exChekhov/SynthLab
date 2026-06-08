@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Swift / build artifacts
+mac/ChannelSplitterMac/.build/
+mac/ChannelSplitterMac/.dmg_stage/
+mac/ChannelSplitterMac/ChannelSplitter.app/
+
+# Python
+__pycache__/
+*.pyc

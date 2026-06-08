@@ -122,6 +122,12 @@ final class SourceConfig: ObservableObject, Identifiable {
     @Published var loopback: Bool = false          // "System Audio" capture row
     @Published var lbName: String = ""             // selected loopback target ("" = default)
     @Published var name: String = ""               // display name (loopback rows)
+    @Published var radio: Bool = false             // интернет-радио (Tuner) как источник
+    @Published var radioURL: String = ""           // поток выбранной станции
+    // реальный формат источника (пишется движком при старте/работе)
+    var fmtRate: Double = 0
+    var fmtChannels: Int = 0
+    var fmtCodec: String = ""
     var peakL: Float = 0                            // written by audio thread
     var peakR: Float = 0
 
@@ -160,4 +166,34 @@ final class EffectState: ObservableObject {
         "monobass_on": false, "pos_on": false, "tone_on": false,
         "reverb_on": false, "comp_on": false,
     ]
+
+    // Plain (non-published) mirrors of the extended FX, read from the real-time audio
+    // render thread. Swift dictionaries are NOT safe to read while being mutated on the
+    // main thread, so the render closure reads these flat values instead. Kept in sync
+    // by `syncFXMirrors()` whenever the dictionaries change (set_fx / loadSettings).
+    var fxPan: Float = 0          // -1..1
+    var fxDistance: Float = 0     // 0 (near) .. 1 (far)
+    var fxTilt: Float = 0         // -1 (warm) .. 1 (bright)
+    var fxDrive: Float = 0        // 0..1
+    var fxMonobassHz: Float = 120 // 60..250
+    var fxReverbSize: Float = 0.5 // 0..1
+    var fxReverbMix: Float = 0    // 0..0.8
+    var fxCompThresh: Float = -18 // -40..0 dB
+    var fxPosOn = false, fxToneOn = false, fxMonobassOn = false, fxReverbOn = false, fxCompOn = false
+
+    func syncFXMirrors() {
+        fxPan         = Float(extraNum["pan"] ?? 0)
+        fxDistance    = Float(extraNum["distance"] ?? 0)
+        fxTilt        = Float(extraNum["tilt"] ?? 0)
+        fxDrive       = Float(extraNum["drive"] ?? 0)
+        fxMonobassHz  = Float(extraNum["monobass_hz"] ?? 120)
+        fxReverbSize  = Float(extraNum["reverb_size"] ?? 0.5)
+        fxReverbMix   = Float(extraNum["reverb_mix"] ?? 0)
+        fxCompThresh  = Float(extraNum["comp_thresh"] ?? -18)
+        fxPosOn       = extraBool["pos_on"] ?? false
+        fxToneOn      = extraBool["tone_on"] ?? false
+        fxMonobassOn  = extraBool["monobass_on"] ?? false
+        fxReverbOn    = extraBool["reverb_on"] ?? false
+        fxCompOn      = extraBool["comp_on"] ?? false
+    }
 }

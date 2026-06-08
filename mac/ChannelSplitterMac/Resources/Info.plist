@@ -14,6 +14,8 @@
     <string>2.1</string>
     <key>CFBundleExecutable</key>
     <string>ChannelSplitter</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -22,9 +24,18 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- ВАЖНО: только NSAllowsArbitraryLoads. Если добавить гранулярный ключ
+             (…ForMedia/…InWebContent), macOS 10.12+ ИГНОРИРУЕТ NSAllowsArbitraryLoads. -->
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Для автокалибровки задержек колонок приложение измеряет звук через микрофон.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Источник «System Audio» захватывает то, что играет на Mac, и раздаёт на колонки.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Чтобы при переключении источника ставить другие плееры (Apple Music, Spotify) на паузу.</string>
 </dict>
 </plist>

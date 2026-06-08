@@ -22,11 +22,15 @@ final class RenderState {
     var chirpIndex: Int = 0
     var chirpPlaying: Bool = false
 
+    // DSP-900 effects (compressor / reverb / mono-bass / position / tone), per output.
+    let fx: OutputFXChain
+
     init(toneHz: Double) {
         self.toneHz = toneHz
         maxDelay = Int(Audio.sampleRate * 0.08) + 1
         histL = [Float](repeating: 0, count: maxDelay)
         histR = [Float](repeating: 0, count: maxDelay)
+        fx = OutputFXChain(sr: Float(Audio.sampleRate))
     }
 }
 
@@ -39,11 +43,44 @@ final class OutputRuntime {
     let delay = AVAudioUnitDelay()
     var sourceNode: AVAudioSourceNode!
     let state: RenderState
+    let calCap = CalCapture()   // HOLD: rolling capture of this output's rendered signal
 
     init(speaker: OutputSpeaker, toneHz: Double) {
         self.speaker = speaker
         self.state = RenderState(toneHz: toneHz)
         self.eq = AVAudioUnitEQ(numberOfBands: Audio.eqFreqs.count + 2) // 12 EQ + bass + lowpass
+    }
+}
+
+/// Rolling 2-second buffer of an output's rendered (post-gain) signal, used by HOLD to
+/// cross-correlate the live program audio against the microphone (ported from Windows).
+final class CalCapture {
+    private let cap = Int(Audio.sampleRate * 2)
+    private var ring: [Float]
+    private var w = 0
+    private var lock = os_unfair_lock_s()
+    init() { ring = [Float](repeating: 0, count: cap) }
+
+    /// Append `n` samples from the audio thread (lock-guarded, no allocation).
+    func write(_ p: UnsafePointer<Float>, _ n: Int) {
+        os_unfair_lock_lock(&lock); defer { os_unfair_lock_unlock(&lock) }
+        ring.withUnsafeMutableBufferPointer { rb in
+            let r = rb.baseAddress!
+            if n >= cap {
+                for i in 0..<cap { r[i] = p[n - cap + i] }
+                w = 0
+            } else {
+                var idx = w
+                for i in 0..<n { r[idx] = p[i]; idx += 1; if idx == cap { idx = 0 } }
+                w = idx
+            }
+        }
+    }
+
+    /// Snapshot oldest→newest (called off the audio thread).
+    func snapshot() -> [Float] {
+        os_unfair_lock_lock(&lock); let wv = w; let r = ring; os_unfair_lock_unlock(&lock)
+        return Array(r[wv...]) + Array(r[..<wv])
     }
 }
 
@@ -73,20 +110,39 @@ final class PartyEngine: ObservableObject {
     // injected references (set by AppModel)
     var effects = EffectState()
     var masterGain: Float = 1.0
+    /// HOLD: when true, each output records its rendered signal into `calCap` for mic-correlation.
+    var calCapture = false
 
     private(set) var outRuntimes: [OutputRuntime] = []
     private var srcRuntimes: [SourceRuntime] = []
+    private var radioPlayers: [RadioPlayer] = []   // интернет-радио как источник (Tuner)
+    /// ICY-название текущего трека активного радио (для UI).
+    var radioTitle: String { radioPlayers.first?.currentTitle ?? "" }
+    /// Активно ли сейчас интернет-радио (для транспортных кнопок плеера).
+    var hasRadio: Bool { !radioPlayers.isEmpty }
+    /// Реальный битрейт активного радио-потока (kbps) — для панели формата.
+    var radioBitrateKbps: Int { radioPlayers.first?.bitrateKbps ?? 0 }
+    var radioPaused: Bool { radioPlayers.first?.paused ?? false }
+    var radioStopped: Bool { radioPlayers.first?.stopped ?? false }
+    /// Пауза/возобновление радио. Возвращает true, если играет.
+    @discardableResult func radioTogglePlayPause() -> Bool { radioPlayers.first?.togglePlayPause() ?? false }
+    func radioPause() { radioPlayers.first?.pause() }
+    /// STOP радио = сброс (стоп потока, Play перезапустит).
+    func radioStopReset() { radioPlayers.first?.stopReset() }
     private var testMode = false
     private var calibrationBypass = false
 
     /// Native system-audio loopback (Core Audio process tap, macOS 14.2+).
     let systemTap = SystemAudioTap()
+    /// Отдельный muted-tap: глушит ВЕСЬ остальной системный звук, когда активен per-app
+    /// источник (приоритет одного приложения — слышно только выбранное).
+    private let silenceTap = SystemAudioTap()
 
     /// Speakers that failed to open on the last start() — others keep playing.
     private(set) var failedOutputs: [(name: String, error: String)] = []
 
     let spectrumAnalyzer = SpectrumAnalyzer()
-    private var specBuffer = [Float](repeating: 0, count: 2048)
+    private var specBuffer = [Float](repeating: 0, count: 4096)
     private var specWrite = 0
     private var specLock = os_unfair_lock_s()
     private var specOutputID: UUID?
@@ -102,11 +158,21 @@ final class PartyEngine: ObservableObject {
         // build source capture runtimes (skip in test mode) — a bad source must not kill the rest
         if !test {
             for src in sources {
+                // Интернет-радио (Tuner): отдельный плеер подаёт PCM в кольца как источник.
+                if src.radio {
+                    guard !src.radioURL.isEmpty else { continue }
+                    let rp = RadioPlayer(config: src, outputs: outputs)
+                    rp.start(urlString: src.radioURL)
+                    radioPlayers.append(rp)
+                    continue
+                }
                 // Resolve the capture device: a loopback ("System Audio") source uses the
                 // native Core Audio tap; a physical source uses its selected input device.
                 let deviceID: AudioDeviceID
                 if src.loopback {
-                    guard let tapDev = systemTap.ensureDevice() else { continue }
+                    // Пустое имя → весь системный звук; иначе — конкретное приложение.
+                    let proc = src.lbName.isEmpty ? nil : SystemAudioTap.processObject(forName: src.lbName)
+                    guard let tapDev = systemTap.ensureDevice(forProcess: proc) else { continue }
                     deviceID = tapDev
                 } else {
                     guard let dev = src.device else { continue }
@@ -118,7 +184,7 @@ final class PartyEngine: ObservableObject {
                     try setupCapture(rt, deviceID: deviceID)
                     srcRuntimes.append(rt)
                 } catch {
-                    // skip this source; others continue
+                    // пропускаем источник; остальные продолжают
                 }
             }
         }
@@ -128,6 +194,15 @@ final class PartyEngine: ObservableObject {
             rt.engine.prepare()
             try? rt.engine.start()
         }
+
+        // Радио: глушим остальной системный звук (muted-tap), чтобы слышно было ТОЛЬКО радио.
+        // Наш процесс из tap исключён, поэтому само радио (играет у нас) не глушится.
+        if !radioPlayers.isEmpty { _ = systemTap.ensureDevice() }
+
+        // Приоритет последнего источника для приложений реализуется через ПАУЗУ остальных
+        // (см. AppModel.autoFollowTick / NowPlaying), а не через мьют-тап — поэтому здесь
+        // вспомогательный мьют выключен.
+        silenceTap.teardown()
 
         // open each output tolerantly — one unavailable speaker must not kill the others
         for (i, spk) in outputs.enumerated() {
@@ -176,9 +251,12 @@ final class PartyEngine: ObservableObject {
             rt.engine.inputNode.removeTap(onBus: 0)
             rt.engine.stop()
         }
+        for rp in radioPlayers { rp.stop() }
         outRuntimes.removeAll()
         srcRuntimes.removeAll()
+        radioPlayers.removeAll()
         systemTap.teardown()   // release the system-audio tap + its private aggregate device
+        silenceTap.teardown()  // release the «mute everyone else» tap
         isRunning = false
         statusText = "остановлено"
     }
@@ -269,6 +347,9 @@ final class PartyEngine: ObservableObject {
 
     func isChirpFinished(_ output: OutputRuntime) -> Bool { !output.state.chirpPlaying }
 
+    /// HOLD: most recent (≤2 s) rendered signal of an output, oldest→newest.
+    func calSnapshot(_ output: OutputRuntime) -> [Float] { output.calCap.snapshot() }
+
     // MARK: Device assignment
 
     private func setDevice(_ deviceID: AudioDeviceID, on node: AVAudioIONode) throws {
@@ -298,6 +379,13 @@ final class PartyEngine: ObservableObject {
                           userInfo: [NSLocalizedDescriptionKey: "Источник не отдаёт звук (sampleRate=0)"])
         }
         rt.converter = AVAudioConverter(from: inFmt, to: rt.canonical)
+
+        // реальный формат источника (показывается в плеере)
+        rt.config.fmtRate = inFmt.sampleRate
+        rt.config.fmtChannels = Int(inFmt.channelCount)
+        // Короткая подпись — только «PCM» (длинное «PCM Float» переносится и ломает вёрстку;
+        // разрядность и так показана в поле BITS, напр. 32F).
+        rt.config.fmtCodec = "PCM"
 
         let rings = rt.rings
         let config = rt.config
@@ -335,7 +423,12 @@ final class PartyEngine: ObservableObject {
         let engine = rt.engine
         try setDevice(deviceID, on: engine.outputNode)
 
-        let mono = AVAudioFormat(standardFormatWithSampleRate: Audio.sampleRate, channels: 1)!
+        // Роль «L/R» (speaker.stereo) — настоящий стерео-выход: 2 канала на одно
+        // устройство (ch0 = левый, ch1 = правый). Остальные роли (L / R / Mono)
+        // остаются моно: сигнал сворачивается по балансу и дублируется на оба канала.
+        let isStereo = rt.speaker.stereo
+        let chans: AVAudioChannelCount = isStereo ? 2 : 1
+        let fmt = AVAudioFormat(standardFormatWithSampleRate: Audio.sampleRate, channels: chans)!
 
         rt.delay.wetDryMix = 100
         rt.delay.feedback = 0
@@ -345,19 +438,25 @@ final class PartyEngine: ObservableObject {
         let speaker = rt.speaker
         let state = rt.state
         let effects = self.effects
-        let srcPairs: [(StereoRing, SourceConfig)] = srcRuntimes.compactMap { sr in
+        let calCap = rt.calCap
+        var srcPairs: [(StereoRing, SourceConfig)] = srcRuntimes.compactMap { sr in
             guard let ring = sr.rings[speaker.id] else { return nil }
             return (ring, sr.config)
+        }
+        for rp in radioPlayers {   // интернет-радио — такой же источник для микса
+            if let ring = rp.rings[speaker.id] { srcPairs.append((ring, rp.config)) }
         }
         let sr = Audio.sampleRate
 
         var scratchL = [Float](repeating: 0, count: 8192)
         var scratchR = [Float](repeating: 0, count: 8192)
 
-        let node = AVAudioSourceNode(format: mono) { [weak self] _, _, frameCount, ablPtr in
+        let node = AVAudioSourceNode(format: fmt) { [weak self] _, _, frameCount, ablPtr in
             let frames = Int(frameCount)
             let abl = UnsafeMutableAudioBufferListPointer(ablPtr)
             guard let outPtr = abl[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+            let out1: UnsafeMutablePointer<Float>? =
+                (isStereo && abl.count > 1) ? abl[1].mData?.assumingMemoryBound(to: Float.self) : nil
 
             if scratchL.count < frames {
                 scratchL = [Float](repeating: 0, count: frames)
@@ -368,7 +467,8 @@ final class PartyEngine: ObservableObject {
             if state.chirpPlaying, let chirp = state.chirp {
                 for i in 0..<frames {
                     let idx = state.chirpIndex + i
-                    outPtr[i] = idx < chirp.count ? chirp[idx] : 0
+                    let v: Float = idx < chirp.count ? chirp[idx] : 0
+                    outPtr[i] = v; out1?[i] = v
                 }
                 state.chirpIndex += frames
                 if state.chirpIndex >= chirp.count { state.chirpPlaying = false }
@@ -380,13 +480,14 @@ final class PartyEngine: ObservableObject {
                 if state.testOn {
                     for i in 0..<frames {
                         let t = (state.tonePhase + Double(i)) / sr
-                        outPtr[i] = Float(0.2 * sin(2 * Double.pi * state.toneHz * t))
+                        let v = Float(0.2 * sin(2 * Double.pi * state.toneHz * t))
+                        outPtr[i] = v; out1?[i] = v
                     }
                     state.tonePhase += Double(frames)
                 } else {
-                    for i in 0..<frames { outPtr[i] = 0 }
+                    for i in 0..<frames { outPtr[i] = 0; out1?[i] = 0 }
                 }
-                self?.applyGainAndMeter(outPtr, frames, speaker)
+                self?.applyGainAndMeter(outPtr, out1, frames, speaker)
                 return noErr
             }
 
@@ -419,17 +520,25 @@ final class PartyEngine: ObservableObject {
                     }
 
                     applySpatial(state: state, effects: effects, sumL: sumL, sumR: sumR, frames: frames, sr: sr)
+                    // DSP-900 effects: position / mono-bass / tone / compressor / reverb
+                    state.fx.process(sumL, sumR, frames: frames, fx: effects)
 
-                    // collapse to mono by speaker balance
-                    let b = speaker.balance
-                    let gl = 0.5 - b * 0.5
-                    let gr = 0.5 + b * 0.5
-                    for i in 0..<frames { outPtr[i] = sumL[i] * gl + sumR[i] * gr }
+                    if let out1 {
+                        // настоящий стерео: левый → ch0, правый → ch1
+                        for i in 0..<frames { outPtr[i] = sumL[i]; out1[i] = sumR[i] }
+                    } else {
+                        // моно: сворачиваем по балансу роли (дублируется на оба канала устройства)
+                        let b = speaker.balance
+                        let gl = 0.5 - b * 0.5
+                        let gr = 0.5 + b * 0.5
+                        for i in 0..<frames { outPtr[i] = sumL[i] * gl + sumR[i] * gr }
+                    }
                 }
             }
 
-            self?.applyGainAndMeter(outPtr, frames, speaker)
+            self?.applyGainAndMeter(outPtr, out1, frames, speaker)
             if speaker.id == self?.specOutputID { self?.feedSpectrum(outPtr, frames) }
+            if self?.calCapture == true { calCap.write(outPtr, frames) }   // HOLD capture
             return noErr
         }
 
@@ -437,16 +546,23 @@ final class PartyEngine: ObservableObject {
         engine.attach(node)
         engine.attach(rt.eq)
         engine.attach(rt.delay)
-        engine.connect(node, to: rt.eq, format: mono)
-        engine.connect(rt.eq, to: rt.delay, format: mono)
-        engine.connect(rt.delay, to: engine.mainMixerNode, format: mono)
+        engine.connect(node, to: rt.eq, format: fmt)
+        engine.connect(rt.eq, to: rt.delay, format: fmt)
+        engine.connect(rt.delay, to: engine.mainMixerNode, format: fmt)
     }
 
-    private func applyGainAndMeter(_ ptr: UnsafeMutablePointer<Float>, _ frames: Int, _ speaker: OutputSpeaker) {
+    private func applyGainAndMeter(_ p0: UnsafeMutablePointer<Float>, _ p1: UnsafeMutablePointer<Float>?,
+                                   _ frames: Int, _ speaker: OutputSpeaker) {
         var g = speaker.volume * masterGain
-        vDSP_vsmul(ptr, 1, &g, ptr, 1, vDSP_Length(frames))
+        vDSP_vsmul(p0, 1, &g, p0, 1, vDSP_Length(frames))
         var peak: Float = 0
-        vDSP_maxmgv(ptr, 1, &peak, vDSP_Length(frames))
+        vDSP_maxmgv(p0, 1, &peak, vDSP_Length(frames))
+        if let p1 {
+            vDSP_vsmul(p1, 1, &g, p1, 1, vDSP_Length(frames))
+            var peak1: Float = 0
+            vDSP_maxmgv(p1, 1, &peak1, vDSP_Length(frames))
+            peak = max(peak, peak1)
+        }
         speaker.peak = peak
     }
 }

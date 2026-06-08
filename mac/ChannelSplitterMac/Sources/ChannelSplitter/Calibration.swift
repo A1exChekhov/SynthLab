@@ -41,12 +41,14 @@ final class Calibrator {
     }
 
     /// Runs the full sweep on a background queue. `progress` and `done` are called on main.
+    /// `micDeviceID` — выбранный пользователем микрофон (nil → встроенный).
     func calibrate(durationSec: Double = 1.5,
+                   micDeviceID: AudioDeviceID? = nil,
                    progress: @escaping (String) -> Void,
                    done: @escaping (Result<Void, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                try self.run(durationSec: durationSec, progress: progress)
+                try self.run(durationSec: durationSec, micDeviceID: micDeviceID, progress: progress)
                 DispatchQueue.main.async { done(.success(())) }
             } catch {
                 DispatchQueue.main.async { done(.failure(error)) }
@@ -54,16 +56,16 @@ final class Calibrator {
         }
     }
 
-    private func run(durationSec: Double, progress: @escaping (String) -> Void) throws {
+    private func run(durationSec: Double, micDeviceID: AudioDeviceID?, progress: @escaping (String) -> Void) throws {
         guard engine.isRunning else { throw CalibError.notRunning }
         let outputs = engine.outRuntimes
         guard !outputs.isEmpty else { throw CalibError.noOutputs }
-        guard let mic = AudioDevices.builtInInput() else { throw CalibError.noMic }
+        guard let micID = micDeviceID ?? AudioDevices.builtInInput()?.deviceID else { throw CalibError.noMic }
 
         engine.setCalibrationBypass(true)
         defer { engine.setCalibrationBypass(false) }
 
-        try startMic(deviceID: mic.deviceID)
+        try startMic(deviceID: micID)
         defer { micEngine.inputNode.removeTap(onBus: 0); micEngine.stop() }
 
         // Each speaker gets its OWN log-frequency band so the cross-correlation
