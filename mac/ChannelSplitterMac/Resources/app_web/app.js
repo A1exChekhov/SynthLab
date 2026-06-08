@@ -78,7 +78,7 @@ const I18N = {
     lic_head:'Лицензия', contact:'Связь', donate:'Поддержать',
     lic_body:'© 2026 Errarium™. Лицензионное соглашение Errarium™ (проприетарная лицензия). Разрешено личное некоммерческое использование. Запрещены перепродажа, ребрендинг и удаление уведомлений об авторских правах. ПО предоставляется «как есть», без гарантий.',
     about_desc:'Channel Splitter — премиальный маршрутизатор звука: раздаёт L/R на несколько Bluetooth-колонок и наушники, с EQ, спецэффектами, GPU-цветомузыкой и компенсацией задержки.',
-    close:'Закрыть', mini:'Мини-плеер',
+    close:'Закрыть', mini:'Mini',
   },
   en: {
     rack:'Rack', theme:'Theme', layout:'Layout',
@@ -149,7 +149,7 @@ const I18N = {
     lic_head:'License', contact:'Contact', donate:'Donate',
     lic_body:'© 2026 Errarium™. Errarium™ License Agreement (proprietary). Personal, non-commercial use is permitted. Resale, rebranding and removal of copyright notices are prohibited. The software is provided “as is”, without warranty.',
     about_desc:'Channel Splitter is a premium audio router: it sends L/R to multiple Bluetooth speakers and headphones, with EQ, effects, a GPU visualizer and latency compensation.',
-    close:'Close', mini:'Mini player',
+    close:'Close', mini:'Mini',
   },
 };
 function t(k){ const d=I18N[LANG]||I18N.ru; return (d[k]!=null?d[k]:(I18N.ru[k]!=null?I18N.ru[k]:k)); }

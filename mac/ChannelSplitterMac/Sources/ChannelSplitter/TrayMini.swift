@@ -78,6 +78,8 @@ final class AppChrome: NSObject {
 
     // MARK: - Main window show / hide
 
+    private var mainHidden = false   // явное состояние видимости главного окна (для toggle)
+
     func showMain() {
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -86,16 +88,17 @@ final class AppChrome: NSObject {
             w.makeKeyAndOrderFront(nil)
             w.orderFrontRegardless()
         }
+        mainHidden = false
     }
 
     func hideMain() {
         mainWindow?.orderOut(nil)
+        mainHidden = true
     }
 
-    /// Кнопка в мини-плеере: показать ИЛИ скрыть главное окно.
+    /// Кнопка в мини-плеере: показать ИЛИ скрыть главное окно (детерминированно по флагу).
     func toggleMain() {
-        if let w = mainWindow, w.isVisible, !w.isMiniaturized { hideMain() }
-        else { showMain() }
+        if mainHidden { showMain() } else { hideMain() }
     }
 
     // MARK: - Mini player

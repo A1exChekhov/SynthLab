@@ -87,7 +87,7 @@ final class Bridge: NSObject, WKScriptMessageHandler, NSWindowDelegate {
     /// Red-button / Cmd-W hides the main window to the tray instead of quitting the app
     /// (the menu-bar item's "Show window" brings it back). Mirrors Windows tray behaviour.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
+        AppChrome.shared?.hideMain()   // через AppChrome — чтобы флаг видимости был синхронен
         return false
     }
 
