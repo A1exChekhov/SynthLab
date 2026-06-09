@@ -5,7 +5,7 @@ REM Intel-MKL DLLs that bloat a system-Python build to ~800 MB.
 cd /d "%~dp0"
 python -m venv buildenv
 buildenv\Scripts\python.exe -m pip install --upgrade pip
-buildenv\Scripts\python.exe -m pip install numpy scipy sounddevice soundcard moderngl glfw pywebview winsdk pystray pillow pyinstaller
+buildenv\Scripts\python.exe -m pip install numpy scipy sounddevice soundcard moderngl glfw pywebview winsdk pystray pillow miniaudio pyinstaller
 REM v2.1 — premium web UI (pywebview) + system tray + mini player + ru/en.
 buildenv\Scripts\python.exe -m PyInstaller --noconfirm --onefile --windowed ^
   --name ChannelSplitter --version-file version_info.txt ^
@@ -13,7 +13,7 @@ buildenv\Scripts\python.exe -m PyInstaller --noconfirm --onefile --windowed ^
   --collect-all webview --collect-all clr_loader --hidden-import clr --collect-all winsdk ^
   --collect-binaries sounddevice --collect-all soundcard ^
   --collect-all moderngl --collect-all glcontext --collect-all glfw ^
-  --collect-all pystray --collect-all PIL splitter_app.py
+  --collect-all pystray --collect-all PIL --collect-all miniaudio splitter_app.py
 echo.
 echo Done -^> dist\ChannelSplitter.exe (web UI 2.0)
 pause

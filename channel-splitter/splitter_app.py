@@ -84,6 +84,10 @@ class AppCore:
         self.gpu = None
         self._win = None
         self._mini = None
+        self._viz_win = None
+        self._mini_x = 40
+        self._mini_y = 40
+        self._radio_cover = ""   # обложка радио (URL из JS), для мини-плеера
         self._tray = None
         self._quitting = False
         self._main_hidden = False
@@ -316,7 +320,7 @@ class AppCore:
         for o in self.outputs:
             o.idx = self._out_idx(getattr(o, "label", ""))
         for s in self.sources:
-            if not s.loopback:
+            if not s.loopback and not getattr(s, "radio", False):
                 s.idx = self._in_idx(getattr(s, "label", ""))
         return list(self.sources), list(self.outputs)
 
@@ -460,6 +464,11 @@ class AppCore:
             pass
         return True
 
+    def toggle_main(self):
+        if self._main_hidden:
+            return self.show_main()
+        return self.hide_main()
+
     def show_mini(self):
         try:
             self._mini.show(); self._mini_hidden = False
@@ -496,15 +505,27 @@ class AppCore:
 
     # ── visualizer ──
     def open_viz(self):
-        if not core.HAVE_GPU:
+        """Цветомузыка в отдельном окне (viz.html на canvas, как в macOS-версии)."""
+        try:
+            if self._viz_win is not None:
+                try:
+                    self._viz_win.show()
+                    return True
+                except Exception:
+                    self._viz_win = None
+            self._viz_win = webview.create_window(
+                "Channel Splitter — Visualizer", url=_asset("viz.html"),
+                js_api=self, width=1280, height=720, background_color="#050607")
+
+            def _viz_closed():
+                self._viz_win = None
+            try:
+                self._viz_win.events.closed += _viz_closed
+            except Exception:
+                pass
+            return True
+        except Exception:
             return False
-        if self.gpu is None:
-            self.gpu = core.GPUVisualizer(self.engine)
-        if self.gpu.is_open():
-            self.gpu.next_preset()   # уже открыто → повторное нажатие меняет режим
-        else:
-            self.gpu.start()
-        return True
 
     def set_viz(self, key, value):
         self.engine.viz_cfg[key] = value if isinstance(value, (bool, str)) else float(value)
@@ -529,23 +550,156 @@ class AppCore:
                 elif cmd == "prev":
                     await s.try_skip_previous_async()
                 elif cmd == "stop":
-                    await s.try_stop_async()
+                    # STOP надёжно во всех плеерах (Яндекс/Spotify часто НЕ поддерживают
+                    # try_stop): мягкий сброс = перемотка в начало + пауза. Если плеер
+                    # реально поддерживает stop — пробуем и его.
+                    try:
+                        await s.try_change_playback_position_async(0)
+                    except Exception:
+                        pass
+                    try:
+                        await s.try_pause_async()
+                    except Exception:
+                        pass
+                    try:
+                        await s.try_change_playback_position_async(0)
+                    except Exception:
+                        pass
+                    try:
+                        if s.get_playback_info().controls.is_stop_enabled:
+                            await s.try_stop_async()
+                    except Exception:
+                        pass
                 return True
             return asyncio.run(go())
         except Exception:
             return False
 
+    def _radio_active(self):
+        return (self.engine.running and not self.engine.radio_stopped
+                and any(getattr(s, "radio", False) for s in self.sources))
+
     def media_playpause(self):
+        if self._radio_active():
+            self.engine.radio_paused = not self.engine.radio_paused
+            return not self.engine.radio_paused
         return self._media_cmd("play")
 
     def media_next(self):
+        if self._radio_active():
+            return False
         return self._media_cmd("next")
 
     def media_prev(self):
+        if self._radio_active():
+            return False
         return self._media_cmd("prev")
 
     def media_stop(self):
+        if self._radio_active():
+            self.tuner_stop()
+            return False
         return self._media_cmd("stop")
+
+    def set_radio_cover(self, url=None):
+        """Обложка радио (URL логотипа станции / арт трека из iTunes), приходит из JS —
+        у радио нет SMTC-миниатюры, поэтому мини-плеер берёт её отсюда."""
+        self._radio_cover = url or ""
+        return True
+
+    def now_playing_art(self):
+        """Обложка текущего трека → data:URL/URL. Для радио — переданная из JS обложка,
+        иначе миниатюра Windows Media Session (base64)."""
+        if self._radio_active() and self._radio_cover:
+            return self._radio_cover
+        try:
+            from winsdk.windows.media.control import \
+                GlobalSystemMediaTransportControlsSessionManager as MM
+            from winsdk.windows.storage.streams import DataReader
+            import asyncio, base64
+
+            async def go():
+                mgr = await MM.request_async()
+                s = mgr.get_current_session()
+                if not s:
+                    return None
+                info = await s.try_get_media_properties_async()
+                thumb = getattr(info, "thumbnail", None)
+                if not thumb:
+                    return None
+                stream = await thumb.open_read_async()
+                size = int(stream.size)
+                if size <= 0:
+                    return None
+                reader = DataReader(stream)
+                await reader.load_async(size)
+                buf = bytearray(size)
+                reader.read_bytes(buf)   # winsdk: заполняет переданный массив
+                ct = (getattr(stream, "content_type", "") or "image/jpeg")
+                return "data:" + ct + ";base64," + base64.b64encode(bytes(buf)).decode("ascii")
+            return asyncio.run(go())
+        except Exception:
+            return None
+
+    # ── Input / Tuner (выбор источника + интернет-радио) ──
+    def _first_source(self):
+        if not self.sources:
+            self.sources = [core.Source(0, "")]
+        return self.sources[0]
+
+    def set_input(self, kind=None, value=None):
+        """Кнопка Input: первый источник → системный звук / приложение(устройство
+        захвата) / входное устройство. На Windows «app» = захват выбранного
+        render-устройства (полноценный per-process loopback недоступен без WASAPI
+        process-loopback)."""
+        s = self._first_source()
+        s.radio = False; s.radio_url = ""
+        if kind == "app":
+            s.loopback = True; s.lb_name = value or ""; s.name = "System Audio"
+        elif kind == "device":
+            s.loopback = False; s.lb_name = ""
+            s.label = value or ""; s.name = value or "Input"
+        else:  # system
+            s.loopback = True; s.lb_name = ""; s.name = "System Audio"
+        if self.engine.running:
+            self._reapply()
+        else:
+            self._start()
+        self._save()
+        return True
+
+    def tuner_play(self, url=None, name="", favicon=""):
+        if not url:
+            return False
+        s = self._first_source()
+        s.radio = True; s.radio_url = url; s.loopback = False; s.lb_name = ""
+        s.name = name or "Radio"
+        self._radio_cover = favicon or ""   # лого станции — мгновенная обложка (до арта трека)
+        self.engine.radio_stopped = False; self.engine.radio_paused = False; self.engine.radio_title = ""
+        if self.engine.running:
+            self._reapply()
+        else:
+            self._start()
+        return True
+
+    def tuner_stop(self):
+        s = self.sources[0] if self.sources else None
+        if s and getattr(s, "radio", False):
+            s.radio = False; s.radio_url = ""; s.loopback = True; s.lb_name = ""; s.name = "System Audio"
+            if self.engine.running:
+                self._reapply()
+        self.engine.radio_stopped = True
+        return True
+
+    def mini_move(self, dx, dy):
+        try:
+            if self._mini is not None:
+                self._mini_x = int(getattr(self, "_mini_x", 40)) + int(dx)
+                self._mini_y = int(getattr(self, "_mini_y", 40)) + int(dy)
+                self._mini.move(self._mini_x, self._mini_y)
+        except Exception:
+            pass
+        return True
 
     # ── HOLD: онлайн-удержание синхронизации (компенсация дрейфа BT по микрофону) ──
     def hold_toggle(self, mic_label=None):
@@ -603,8 +757,17 @@ class AppCore:
                 ratio = float(c[pk]) / (float(np.median(c)) + 1e-9)
                 return pk - (len(o) - 1), ratio
 
-            while not self._hold_stop and eng.running:
+            while not self._hold_stop:
                 _t.sleep(2.0)
+                # HOLD контролирует только включивший: переживаем перезапуски движка
+                # (смена входа/радио/добавление выходов), сами НЕ выключаемся.
+                if not eng.running:
+                    continue
+                eng.cal_capture = True
+                nonsub = [o for o in self.outputs if not o.is_sub]
+                if len(nonsub) < 2:
+                    continue
+                a, b = nonsub[0], nonsub[1]
                 need = int(1.1 * msr)
                 w = wpos[0]
                 mic = np.concatenate([ring[w:], ring[:w]])[-need:]
@@ -775,14 +938,14 @@ class AppCore:
             "in_devices": [{"idx": i, "label": l} for i, l in self.in_devs],
             "lb_speakers": list(self.lb),
             "mic_devices": [{"idx": i, "label": l} for i, l in self.mic],
-            "gpu": core.HAVE_GPU, "loopback": core.HAVE_LOOPBACK,
+            "gpu": False, "loopback": core.HAVE_LOOPBACK,
             "running": e.running, "master": e.master,
             "outputs": [{"id": o.id, "device": getattr(o, "label", ""), "role": self._role(o),
                          "vol": o.vol, "mute": o.mute, "sub": o.is_sub, "xover": o.xover,
                          "delay": o.delay_ms, "inv": o.inv} for o in self.outputs],
             "sources": [{"id": s.id, "name": s.name, "loopback": s.loopback, "lb_name": s.lb_name,
-                         "device": getattr(s, "label", ""), "vol": s.vol, "bal": s.bal,
-                         "mute": s.mute, "inv": s.inv} for s in self.sources],
+                         "device": getattr(s, "label", ""), "radio": getattr(s, "radio", False),
+                         "vol": s.vol, "bal": s.bal, "mute": s.mute, "inv": s.inv} for s in self.sources],
             "eq": {"on": e.eq_on, "gains": list(e.eq_gains)},
             "fx": {"spatial_on": e.spatial_on, "spatial": e.spatial, "threeD_on": e.threeD_on,
                    "threeD": e.threeD, "surround_on": e.surround_on, "surround": e.surround,
@@ -795,6 +958,7 @@ class AppCore:
             "viz": dict(e.viz_cfg),
             "ui": dict(self.ui),
             "hold": self._hold_on,
+            "fmt": {"rate": 48000, "ch": 2, "codec": "PCM", "kbps": 0},
             "np": {"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0", "kbps": "—"},
         }
 
@@ -818,9 +982,32 @@ class AppCore:
         pos = float(np.get("pos", 0.0)); end = float(np.get("end", 0.0))
         np["cur"] = _mmss(pos); np["total"] = _mmss(end)
         np["posfrac"] = (pos / end) if end > 0 else 0.0
+        np_app = np.get("source", "")
+        radio_active = self._radio_active()
+        if radio_active:
+            np["title"] = e.radio_title or np.get("title", "") or "Radio"
+            np["source"] = "Radio"
+        np["art_id"] = ("radio:" + (e.radio_title or "")) if radio_active else \
+            "%s|%s|%s" % (np.get("title", ""), np.get("sub", ""), np_app)
         np.update({"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0"})
+        s0 = self.sources[0] if self.sources else None
+        if radio_active:
+            fmt = {"rate": float(getattr(s0, "fmt_rate", 0) or core.SR), "ch": 2,
+                   "codec": "stream", "kbps": int(e.radio_kbps or 0)}
+        else:
+            fmt = {"rate": 48000, "ch": 2, "codec": "PCM", "kbps": 0}
+        src_sig = ",".join("%s|%s|%s" % (getattr(s, "lb_name", ""), getattr(s, "radio", False),
+                                          getattr(s, "label", "")) for s in self.sources)
+        try:
+            wave = [float(x) for x in e.viz_wave]
+        except Exception:
+            wave = []
         return {"running": e.running, "outs": outs, "srcs": srcs, "spectrum": spec,
-                "bands": bands, "level": float(e.viz_level), "beat": beat, "np": np}
+                "bands": bands, "wave": wave, "level": float(e.viz_level), "beat": beat,
+                "viz": {"level": float(e.viz_level), "beat": beat}, "np": np, "np_app": np_app,
+                "radio_title": e.radio_title, "radio_paused": bool(e.radio_paused),
+                "radio_stopped": bool(e.radio_stopped), "radio_active": radio_active,
+                "fmt": fmt, "src_sig": src_sig}
 
 
 def _tray_image():
@@ -886,7 +1073,9 @@ def _post_start(app):
         sw = ctypes.windll.user32.GetSystemMetrics(0)
         sh = ctypes.windll.user32.GetSystemMetrics(1)
         if app._mini is not None:
-            app._mini.move(sw - 384, sh - 168)
+            app._mini_x = sw - 384
+            app._mini_y = sh - 168
+            app._mini.move(app._mini_x, app._mini_y)
     except Exception:
         pass
     _start_tray(app)

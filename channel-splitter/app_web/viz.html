@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Channel Splitter — Цветомузыка</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
+  #c{display:block;width:100vw;height:100vh}
+  #hint{position:fixed;left:0;right:0;bottom:26px;text-align:center;
+        color:#9aa0a8;font:13px/1.4 -apple-system,Segoe UI,sans-serif;
+        letter-spacing:.06em;opacity:.55;pointer-events:none;
+        transition:opacity .6s ease;text-shadow:0 1px 5px #000}
+  body.idle #hint{opacity:0}
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hint">ESC — выход · пробел / клик — следующий режим</div>
+<script>
+'use strict';
+// ─────────────────────────────────────────────────────────────────────────
+// Цветомузыка — WebGL фрагментные шейдеры. Плавные «текучие» картины (без
+// полосок): северное сияние / плазма, жидкие метаболы, калейдоскоп-тоннель,
+// спектральная туманность. Реагирует на meters().viz (64 полосы, осциллограмма,
+// level/bass/treble/centroid/beat), сглаживается (AGC) и сама дышит в тишине.
+// Цвет / Ч-Б / Монотон. Пробел/клик — следующий режим, ESC — выход.
+// ─────────────────────────────────────────────────────────────────────────
+const NB=64, NW=256, MODES=3;   // Aurora, Tunnel, Waves (Nebula/Flow убраны)
+const c=document.getElementById('c'), hint=document.getElementById('hint');
+let API=null, mode=0, t0=performance.now();
+
+// нормализация (тот же AGC, что и раньше)
+let norm=0.02, lvln=0.02, bassn=0.004, beatenv=0;
+const sm={level:0,bass:0,treble:0,beat:0,cen:0};   // покадровое EMA уже поверх AGC
+const disp=new Float32Array(NB);
+let frame={running:false,bands:null,wave:null,level:0,bass:0,treble:0,cen:0,beat:0};
+const CFG={ color_mode:0, mono_hue:0.55, sat:1.0, speed:1.0 };
+
+// ── WebGL ──
+const gl = c.getContext('webgl',{alpha:false,antialias:true,premultipliedAlpha:false})
+        || c.getContext('experimental-webgl',{alpha:false,antialias:true});
+
+const VERT = `
+attribute vec2 a_pos;
+void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }
+`;
+
+const FRAG = `
+precision highp float;
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_level, u_bass, u_treble, u_beat, u_cen;
+uniform int   u_mode;
+uniform int   u_colorMode;   // 0 цвет, 1 ч/б, 2 монотон
+uniform float u_monoHue, u_sat, u_speed;
+uniform sampler2D u_bands;   // Nx1, .r = полоса 0..1
+uniform sampler2D u_wave;    // Mx1, .r = осциллограмма 0..1
+
+float band(float x){ return texture2D(u_bands, vec2(clamp(x,0.0,1.0),0.5)).r; }
+float wave(float x){ return texture2D(u_wave,  vec2(clamp(x,0.0,1.0),0.5)).r - 0.5; }
+
+float hash(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=hash(i), b=hash(i+vec2(1.0,0.0)), c2=hash(i+vec2(0.0,1.0)), d=hash(i+vec2(1.0,1.0));
+  return mix(mix(a,b,f.x), mix(c2,d,f.x), f.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<6;i++){ s+=a*noise(p); p=p*2.02+vec2(7.1,3.7); a*=0.5; } return s; }
+
+vec3 hue2rgb(float h){ return clamp(abs(mod(h*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0, 0.0, 1.0); }
+
+// e — яркость (0..~2), hueOff — сдвиг тона
+vec3 shade(float e, float hueOff){
+  e = max(e, 0.0);
+  if(u_colorMode==1) return vec3(e);
+  float h;
+  if(u_colorMode==2) h = u_monoHue;
+  else h = fract(u_time*0.02*u_speed + hueOff + 0.15*u_cen);
+  vec3 rgb = hue2rgb(h);
+  rgb = mix(vec3(1.0), rgb, clamp(u_sat,0.0,1.0));   // лёгкий блюм к белому
+  return rgb * e;
+}
+
+// 0 — северное сияние / плазма: непрерывный поток по времени (течёт даже в тишине),
+// звук лишь модулирует яркость/деформацию.
+vec3 mAurora(vec2 p, float T){
+  vec2 fl = vec2(T*0.16, T*0.06);
+  vec2 q;
+  q.x = fbm(p*1.15 + fl);
+  q.y = fbm(p*1.15 + fl*0.8 + vec2(3.3, 1.7));
+  float n = fbm(p*1.55 + q*(1.7 + u_bass*1.1) + vec2(-T*0.13, T*0.09));
+  float e = smoothstep(0.16, 0.96, n) * (0.6 + 0.9*u_level);
+  e += 0.16 * band(0.5 + 0.5*p.x) * n;
+  e += 0.18 * u_beat;
+  return shade(e, n*0.5 + 0.12*q.y);
+}
+
+// 1 — калейдоскоп-тоннель: непрерывное вращение + поток внутрь
+vec3 mTunnel(vec2 p, float T){
+  float a = atan(p.y, p.x) + T*0.16;
+  float r = length(p) + 0.0001;
+  float k = 6.0;
+  a = mod(a, 6.28318/k);
+  a = abs(a - 3.14159/k);
+  vec2 q = vec2(cos(a), sin(a))*r;
+  float depth = 1.0/(r+0.18);
+  float v = fbm(q*2.4 + vec2(T*0.22, -(T*(0.5+u_treble*0.9))) + depth);
+  float e = smoothstep(0.2, 0.9, v) * (0.6 + 1.0*u_level);
+  e += 0.30*band(fract(r*1.5)) * smoothstep(0.0,0.7,v);
+  e += 0.24*u_beat;
+  e *= smoothstep(0.0, 0.14, r);          // мягкая дыра в центре
+  return shade(e, v*0.7 + a*0.159 + 0.05*depth);
+}
+
+// 2 — спектральная туманность: дрейф облаков + кольцо по полосам
+vec3 mNebula(vec2 p, float T){
+  float a = atan(p.y, p.x)*0.159 + 0.5;   // 0..1
+  float r = length(p);
+  float bv = band(a);
+  float e = fbm(p*1.7 + vec2(T*0.12, -T*0.09)) * 0.6 * (0.5 + 0.8*u_level);
+  float ring = 0.34 + 0.26*bv + 0.05*sin(T*0.35);
+  e += smoothstep(0.18, 0.0, abs(r-ring)) * (0.4 + 1.4*bv);
+  e += smoothstep(0.024, 0.0, abs(r - (0.17 + 0.07*wave(a)))) * (0.6 + 0.6*u_level);
+  e += 0.24*u_beat * smoothstep(0.6, 0.0, r);
+  return shade(e, a + 0.06*T*u_speed + 0.2*bv);
+}
+
+// 3 — жидкость: итеративная деформация поля (марблинг / разводы чернил)
+vec3 mFlow(vec2 p, float T){
+  vec2 q = p*1.35;
+  q += 0.6*vec2(fbm(q + vec2(0.0,  T*0.16)),
+                fbm(q + vec2(5.2, -T*0.13)));
+  q += 0.5*vec2(fbm(q*1.3 + vec2(1.7,  T*0.11)),
+                fbm(q*1.3 + vec2(8.3, -T*0.09)));
+  float n = fbm(q*1.1 + vec2(T*0.07, 0.0));
+  float e = smoothstep(0.18, 0.92, n) * (0.6 + 0.9*u_level);
+  e += 0.18*u_beat + 0.16*band(n);
+  return shade(e, n + 0.08*q.x);
+}
+
+// 4 — текучие волны / каустика
+vec3 mWaves(vec2 p, float T){
+  float v = 0.0;
+  for(int i=0;i<5;i++){
+    float fi = float(i) + 1.0;
+    v += sin(p.x*fi*2.0 + T*(0.5+0.12*fi) + sin(p.y*fi*1.4 - T*0.35)*1.6) / fi;
+  }
+  v += 0.7*u_bass*sin(length(p)*7.0 - T*1.8);
+  float e = 0.5 + 0.5*v;
+  e = pow(max(e,0.0), 2.2) * (0.6 + 0.8*u_level) + 0.2*u_beat;
+  return shade(e, 0.25*v + 0.02*T*u_speed);
+}
+
+void main(){
+  vec2 p = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;   // центрировано, с учётом сторон
+  float T = u_time;
+  vec3 col;
+  if(u_mode==0)      col = mAurora(p, T);
+  else if(u_mode==1) col = mTunnel(p, T);
+  else               col = mWaves(p, T);
+
+  col = vec3(1.0) - exp(-col*1.3);                    // мягкое тон-отображение (свечение)
+  float vig = smoothstep(1.3, 0.25, length(p));       // виньетка
+  col *= mix(0.55, 1.0, vig);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+function makeShader(type, src){
+  const sh=gl.createShader(type); gl.shaderSource(sh,src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) console.warn(gl.getShaderInfoLog(sh));
+  return sh;
+}
+let prog=null, U={}, bandsTex=null, waveTex=null;
+const bandsPix=new Uint8Array(NB*4), wavePix=new Uint8Array(NW*4);
+
+function makeTex(){
+  const tx=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tx);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return tx;
+}
+
+function initGL(){
+  prog=gl.createProgram();
+  gl.attachShader(prog, makeShader(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, makeShader(gl.FRAGMENT_SHADER, FRAG));
+  gl.bindAttribLocation(prog, 0, 'a_pos');
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) console.warn(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  const buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  ['u_res','u_time','u_level','u_bass','u_treble','u_beat','u_cen','u_mode',
+   'u_colorMode','u_monoHue','u_sat','u_speed','u_bands','u_wave']
+    .forEach(n=>{ U[n]=gl.getUniformLocation(prog,n); });
+
+  bandsTex=makeTex(); waveTex=makeTex();
+  gl.uniform1i(U.u_bands, 0);
+  gl.uniform1i(U.u_wave, 1);
+}
+
+function fit(){
+  const dpr=Math.min(devicePixelRatio||1, 2);
+  c.width=Math.floor(innerWidth*dpr); c.height=Math.floor(innerHeight*dpr);
+  if(gl) gl.viewport(0,0,c.width,c.height);
+}
+addEventListener('resize', fit);
+
+// ── нормализация одного кадра (как раньше) ──
+function agc(){
+  const running=frame.running;
+  let pk=0;
+  if(frame.bands){ for(let i=0;i<NB;i++){ let v=frame.bands[i]||0; if(!running)v*=0.92; if(v>pk)pk=v; } }
+  norm = pk>norm ? norm+(pk-norm)*0.25 : Math.max(norm*0.993, 0.02);   // мягкая атака, без скачка
+  for(let i=0;i<NB;i++){
+    let raw=frame.bands?(frame.bands[i]||0):0; if(!running)raw*=0.92;
+    const tgt=Math.min(1,Math.max(0,raw/norm));
+    disp[i]= tgt>disp[i] ? disp[i]*0.72+tgt*0.28 : disp[i]*0.90+tgt*0.10;
+  }
+  const lv=frame.level||0; lvln = lv>lvln ? lvln+(lv-lvln)*0.25 : Math.max(lvln*0.994, 0.02);
+  const level=Math.min(1,lv/lvln)*(running?1:0.35);
+  const bs=frame.bass||0; bassn = bs>bassn ? bassn+(bs-bassn)*0.25 : Math.max(bassn*0.993, 0.004);
+  const bass=Math.min(1,bs/bassn)*(running?1:0);
+  beatenv=Math.max(beatenv*0.90, running?(frame.beat||0):0);
+  const treble=Math.min(1,(frame.treble||0)*40);
+  return {level,bass,treble,beat:beatenv,cen:frame.cen||0};
+}
+
+function render(){
+  if(!gl){ requestAnimationFrame(render); return; }
+  const s=agc(), tt=(performance.now()-t0)/1000*CFG.speed;
+  sm.level  += (s.level  - sm.level )*0.12;
+  sm.bass   += (s.bass   - sm.bass  )*0.12;
+  sm.treble += (s.treble - sm.treble)*0.10;
+  sm.beat   += (s.beat   - sm.beat  )*0.18;
+  sm.cen    += (s.cen    - sm.cen   )*0.06;
+
+  for(let i=0;i<NB;i++){ const v=Math.max(0,Math.min(1,disp[i]))*255|0; bandsPix[i*4]=v; bandsPix[i*4+3]=255; }
+  const w=frame.wave;
+  for(let i=0;i<NW;i++){ const v=w&&w.length?Math.max(0,Math.min(1,w[(i*w.length/NW)|0])):0.5; wavePix[i*4]=v*255|0; wavePix[i*4+3]=255; }
+
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, bandsTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,NB,1,0,gl.RGBA,gl.UNSIGNED_BYTE,bandsPix);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, waveTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,NW,1,0,gl.RGBA,gl.UNSIGNED_BYTE,wavePix);
+
+  gl.uniform2f(U.u_res, c.width, c.height);
+  gl.uniform1f(U.u_time, tt);
+  gl.uniform1f(U.u_level, sm.level);
+  gl.uniform1f(U.u_bass, sm.bass);
+  gl.uniform1f(U.u_treble, sm.treble);
+  gl.uniform1f(U.u_beat, sm.beat);
+  gl.uniform1f(U.u_cen, sm.cen);
+  gl.uniform1i(U.u_mode, mode);
+  gl.uniform1i(U.u_colorMode, CFG.color_mode|0);
+  gl.uniform1f(U.u_monoHue, CFG.mono_hue);
+  gl.uniform1f(U.u_sat, CFG.sat);
+  gl.uniform1f(U.u_speed, CFG.speed);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  requestAnimationFrame(render);
+}
+
+// ── опрос звука (контракт не меняется) ──
+function poll(){
+  if(!API) return;
+  API.meters().then(m=>{ if(!m) return; const v=m.viz||{};
+    frame={ running:!!m.running, bands:v.bands||m.bands, wave:v.wave,
+            level:+(v.level||m.level||0), bass:+(v.bass||0),
+            treble:+(v.treble||0), cen:+(v.cen||0), beat:+(v.beat||m.beat||0) };
+  }).catch(()=>{});
+}
+let idleTimer=null;
+function poke(){ document.body.classList.remove('idle'); clearTimeout(idleTimer); idleTimer=setTimeout(()=>document.body.classList.add('idle'),2600); }
+function nextMode(){ mode=(mode+1)%MODES; if(API&&API.set_viz)API.set_viz('mode',mode); poke(); }
+
+// Запуск в ОТДЕЛЬНОМ окне (есть мост pywebview): опрос звука через API.
+function boot(){
+  API=window.pywebview.api;
+  if(API.get_state) API.get_state().then(s=>{ const vz=(s&&s.viz)||{};
+    CFG.color_mode=(vz.color_mode|0)||0;
+    if(vz.mono_hue!=null) CFG.mono_hue=+vz.mono_hue;
+    if(typeof vz.mode==='number') mode=vz.mode%MODES;
+  });
+  setInterval(()=>{ if(API&&API.get_state) API.get_state().then(s=>{ const vz=(s&&s.viz)||{}; CFG.color_mode=(vz.color_mode|0)||0; if(vz.mono_hue!=null)CFG.mono_hue=+vz.mono_hue; }); }, 700);
+  setInterval(poll, 33);
+}
+
+// Слушатели работают всегда (в т.ч. когда viz.html встроен в окно анализатора как iframe).
+addEventListener('click', nextMode);
+addEventListener('keydown', e=>{ if(e.code==='Space') nextMode(); });
+addEventListener('mousemove', poke);
+// Встроенный режим: данные звука и команды приходят postMessage'ом от приложения.
+addEventListener('message', e=>{
+  const d=e.data||{};
+  if(d.viz){ const v=d.viz;
+    frame={ running:!!d.running, bands:v.bands||[], wave:v.wave,
+            level:+(v.level||0), bass:+(v.bass||0), treble:+(v.treble||0),
+            cen:+(v.cen||0), beat:+(v.beat||0) };
+    poke();
+  }
+  if(d.cmd==='next') nextMode();
+  if(d.color_mode!=null) CFG.color_mode=d.color_mode|0;
+});
+
+if(gl){ initGL(); fit(); } else { hint.textContent='WebGL недоступен'; }
+// Встроено в окно анализатора (iframe) — подсказка ESC/пробел не нужна.
+if(window.self !== window.top){ const h=document.getElementById('hint'); if(h) h.style.display='none'; document.documentElement.style.cursor='default'; }
+requestAnimationFrame(render);
+poke();
+if(window.pywebview && window.pywebview.api){ boot(); }
+else { window.addEventListener('pywebviewready', boot); }
+</script>
+</body>
+</html>

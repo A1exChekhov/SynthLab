@@ -49,7 +49,7 @@ floating mini player. Interface language (English / Russian) is chosen during in
 
 ## Install
 
-1. Run **`ChannelSplitter-Setup-2.1.exe`**.
+1. Run **`ChannelSplitter-Setup-2.2.exe`**.
 2. Pick the interface language (English / Russian) in the setup wizard.
 3. Launch Channel Splitter.
 
@@ -99,7 +99,7 @@ single transmitter driving a stereo set.
 
 ```bat
 build_exe.bat          REM builds dist\ChannelSplitter.exe (isolated venv, PyInstaller)
-ISCC installer.iss     REM builds installer_out\ChannelSplitter-Setup-2.1.exe (Inno Setup 6)
+ISCC installer.iss     REM builds installer_out\ChannelSplitter-Setup-2.2.exe (Inno Setup 6)
 ```
 
 Stack: Python audio engine (`splitter_gui.py`, NumPy/SciPy/sounddevice/soundcard),

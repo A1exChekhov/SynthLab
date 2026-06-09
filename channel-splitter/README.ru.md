@@ -53,7 +53,7 @@
 
 ## Установка
 
-1. Запусти **`ChannelSplitter-Setup-2.1.exe`**.
+1. Запусти **`ChannelSplitter-Setup-2.2.exe`**.
 2. Выбери язык интерфейса (русский / английский) в мастере установки.
 3. Запусти Channel Splitter.
 

@@ -11,23 +11,43 @@ const I18N = {
   ru: {
     // Лицевые подписи — технические, всегда латиницей (как на hi-fi). Русский только в тултипах и окнах.
     rack:'Rack', theme:'Theme', layout:'Layout',
+    tip_mod_player:'Плеер: что играет сейчас, обложка и транспорт',
+    tip_mod_out:'Matrix: выходы на колонки — роль L/R/Mono, громкость, задержка',
+    tip_mod_src:'Pre-Amp: источники звука — System Audio и микрофоны',
+    tip_mod_eq:'Эквалайзер — 12 полос',
+    tip_mod_fx:'DSP-эффекты: позиция, тон, моно-бас, компрессор, реверб',
+    tip_mod_viz:'Анализатор спектра',
+    tip_theme:'Тема оформления: тёмная / серебро',
+    tip_layout:'Сколько колонок в раскладке модулей',
+    tip_power:'Включить / выключить воспроизведение',
+    tip_master:'Общая громкость (мастер)',
     tip_prev:'Предыдущий', tip_play:'Плей / Пауза', tip_next:'Следующий', tip_stop:'Стоп',
     now_playing:'Now Playing',
     add_output:'Output', add_system:'System', add_source:'Source',
+    input:'Input', tuner:'Tuner',
+    tip_input:'Выбрать вход: микрофон / аудиоинтерфейс / линейный вход',
+    tip_add_src:'Добавить ещё источник',
+    tip_tuner:'Тюнер — интернет-радио',
+    tip_output:'Выбрать/заменить выход на первой позиции',
+    tip_add_out:'Добавить новый канал (выход)',
     eq_on:'EQ On', eq_off:'EQ Off', presets:'Presets', reset:'Reset',
     open_gpu:'GPU screen',
     power_on:'ON', power_off:'OFF', stat_stopped:'stopped',
     stat_playing:'playing', out_short:'out',
     master:'Master', sync:'SYNC', phase:'PHASE', hold:'HOLD', ms:'ms', dly:'dly',
     devices:'Devices', calibrate:'Calibrate', effects:'Effects', visualizer:'Visualizer',
+    mini:'Mini', tip_mini:'Показать / скрыть мини-плеер',
     mute:'mute', sub:'sub', capture:'src', default_device:'— default device —',
+    system_mix:'all system audio',
     none_paren:'(n/a)', no_mic:'(микрофон не найден)',
     remove_output:'Удалить выход', remove_source:'Удалить источник', remove_preset:'Удалить пресет',
+    radio_eject:'выгнать радио',
     phase_tip:'Фаза 180°',
     tip_add_src:'Добавить физический вход (микрофон/линейный/CABLE)',
     tip_add_sys:'Добавить системный звук (что играет ПК, loopback)',
     tip_devices:'Пересканировать аудиоустройства',
     tip_viz:'Открыть GPU-цветомузыку (полный экран / 4K)',
+    tip_viz_art:'Обложка трека в анализаторе (отжать — спектр на всю полосу)',
     tip_fx:'Показать модуль спецэффектов (DSP)',
     tip_calib:'Авто-выравнивание задержек по микрофону',
     tip_hold:'Зафиксировать текущую синхронизацию и онлайн-удерживать её по микрофону (дрейф BT)',
@@ -58,11 +78,27 @@ const I18N = {
     lic_head:'Лицензия', contact:'Связь', donate:'Поддержать',
     lic_body:'© 2026 Errarium™. Лицензионное соглашение Errarium™ (проприетарная лицензия). Разрешено личное некоммерческое использование. Запрещены перепродажа, ребрендинг и удаление уведомлений об авторских правах. ПО предоставляется «как есть», без гарантий.',
     about_desc:'Channel Splitter — премиальный маршрутизатор звука: раздаёт L/R на несколько Bluetooth-колонок и наушники, с EQ, спецэффектами, GPU-цветомузыкой и компенсацией задержки.',
-    close:'Закрыть', mini:'Мини-плеер',
+    close:'Закрыть', mini:'Mini',
   },
   en: {
     rack:'Rack', theme:'Theme', layout:'Layout',
+    tip_mod_player:'Player: now playing, cover art and transport',
+    tip_mod_out:'Matrix: speaker outputs — role L/R/Mono, volume, delay',
+    tip_mod_src:'Pre-Amp: audio sources — System Audio and microphones',
+    tip_mod_eq:'Equalizer — 12 bands',
+    tip_mod_fx:'DSP effects: position, tone, mono-bass, compressor, reverb',
+    tip_mod_viz:'Spectrum analyzer',
+    tip_theme:'Appearance theme: dark / silver',
+    tip_layout:'How many columns in the module layout',
+    tip_power:'Start / stop playback',
+    tip_master:'Master volume',
     tip_prev:'Previous', tip_play:'Play / Pause', tip_next:'Next', tip_stop:'Stop',
+    input:'Input', tuner:'Tuner',
+    tip_input:'Choose input: microphone / audio interface / line-in',
+    tip_add_src:'Add another source',
+    tip_tuner:'Tuner — internet radio',
+    tip_output:'Select/replace the first output',
+    tip_add_out:'Add a new channel (output)',
     now_playing:'Now Playing',
     add_output:'Output', add_system:'System', add_source:'Source',
     eq_on:'EQ On', eq_off:'EQ Off', presets:'Presets', reset:'Reset',
@@ -71,14 +107,18 @@ const I18N = {
     stat_playing:'playing', out_short:'out',
     master:'Master', sync:'SYNC', phase:'PHASE', hold:'HOLD', ms:'ms', dly:'dly',
     devices:'Devices', calibrate:'Calibrate', effects:'Effects', visualizer:'Visualizer',
+    mini:'Mini', tip_mini:'Show / hide the mini player',
     mute:'mute', sub:'sub', capture:'capture', default_device:'— default device —',
+    system_mix:'all system audio',
     none_paren:'(missing)', no_mic:'(no microphone found)',
     remove_output:'Remove output', remove_source:'Remove source', remove_preset:'Delete preset',
+    radio_eject:'eject radio',
     phase_tip:'Phase 180°',
     tip_add_src:'Add a physical input (microphone / line-in / CABLE)',
     tip_add_sys:'Add system audio (what the PC is playing, loopback)',
     tip_devices:'Rescan audio devices',
     tip_viz:'Open GPU visualizer (full screen / 4K)',
+    tip_viz_art:'Track cover in the analyzer (off — full-width spectrum)',
     tip_fx:'Show the effects (DSP) module',
     tip_calib:'Auto-align output delays using a microphone',
     tip_hold:'Lock the current sync and keep it online via microphone (BT drift)',
@@ -109,7 +149,7 @@ const I18N = {
     lic_head:'License', contact:'Contact', donate:'Donate',
     lic_body:'© 2026 Errarium™. Errarium™ License Agreement (proprietary). Personal, non-commercial use is permitted. Resale, rebranding and removal of copyright notices are prohibited. The software is provided “as is”, without warranty.',
     about_desc:'Channel Splitter is a premium audio router: it sends L/R to multiple Bluetooth speakers and headphones, with EQ, effects, a GPU visualizer and latency compensation.',
-    close:'Close', mini:'Mini player',
+    close:'Close', mini:'Mini',
   },
 };
 function t(k){ const d=I18N[LANG]||I18N.ru; return (d[k]!=null?d[k]:(I18N.ru[k]!=null?I18N.ru[k]:k)); }
@@ -130,12 +170,14 @@ function setLang(l, persist){
 window.setLang = setLang;
 
 /* ---- module show/hide (chooser + eject) ---- */
-function setVis(id, vis){
+function setVis(id, vis, persist){
   const m = $(id); if(!m) return;
   m.style.display = vis ? '' : 'none';
   if(id==='mod-out') document.querySelectorAll('.mod-out-extra').forEach(s=>{ s.style.display = vis ? '' : 'none'; });
   const d = document.querySelector('#chip-'+id+' .led-dot');
   if(d) d.classList.toggle('on', vis);
+  // запоминаем выбор свёрнутых блоков между запусками
+  if(persist!==false && API && API.set_ui){ ST=ST||{}; ST.ui=ST.ui||{}; ST.ui.mods=ST.ui.mods||{}; ST.ui.mods[id]=vis; API.set_ui('mods', ST.ui.mods); }
   setTimeout(fitWindow, 50);
 }
 function toggleMod(id){ const m = $(id); setVis(id, m.style.display === 'none'); }
@@ -162,10 +204,26 @@ function fitWindow(){
   try{
     const wrap=document.querySelector('.wrap');
     if(!wrap || !API) return;
-    let w=Math.ceil(wrap.offsetWidth), h=Math.ceil(wrap.offsetHeight);
+    // Measure the CONTENT (.wrap) only — never document.body, because body{height:100%}
+    // pins its height to the current viewport, which would block the window from ever
+    // shrinking (leaving the empty "black strip" below the UI).
+    let w=Math.ceil(wrap.offsetWidth);
+    let h=Math.ceil(Math.max(wrap.offsetHeight, wrap.scrollHeight));
     if(window.screen){ w=Math.min(w, screen.availWidth-20); h=Math.min(h, screen.availHeight-70); }
     API.resize_window(w, h);
   }catch(e){}
+}
+
+// Keep the window glued to the content height: any layout change (adding a source
+// module, toggling a panel, switching columns, fonts finishing load) re-fits the
+// window so there is never leftover empty space (the "black strip") below the UI.
+let _fitTimer=null;
+function scheduleFit(){ clearTimeout(_fitTimer); _fitTimer=setTimeout(fitWindow, 40); }
+function setupAutoFit(){
+  const wrap=document.querySelector('.wrap');
+  if(wrap && window.ResizeObserver){ new ResizeObserver(scheduleFit).observe(wrap); }
+  window.addEventListener('resize', scheduleFit);
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(scheduleFit); }
 }
 
 /* ---- helpers ---- */
@@ -265,43 +323,80 @@ function renderOutputs(){
   }
 }
 
-function renderSources(){
-  const box=$('rows-src'); box.innerHTML='';
-  ST.sources.forEach(s=>{
-    const row=el('div','row');
-    const dev=el('div','dev');
-    const dot=el('span','led-dot amber'); dev.appendChild(dot);
-    const col=el('div'); col.style.minWidth='0'; col.style.flex='1';
-    if(s.loopback){
-      const nm=el('div','nm','System Audio'); col.appendChild(nm);
-      const DEF=t('default_device');
-      const lbList=[{idx:-1,label:DEF}].concat((ST.lb_speakers||[]).map((name,i)=>({idx:i,label:name})));
+function renderSourceRow(s){
+  const row=el('div','row');
+  const dev=el('div','dev');
+  const dot=el('span','led-dot amber'); dev.appendChild(dot);
+  const col=el('div'); col.style.minWidth='0'; col.style.flex='1';
+  if(s.radio){
+    // Интернет-радио: понятная строка + явная кнопка «выгнать радио из сплиттера».
+    const nm=el('div','nm', (_radioStation&&_radioStation.name)||'Radio'); col.appendChild(nm);
+    const meta=el('div','meta');
+    const f=ST.fmt||{}; const kb=Math.round(f.kbps||0);
+    meta.appendChild(el('span',null,'RADIO'+(f.codec?(' · '+f.codec):'')+(kb>0?(' · '+kb+' kbps'):' · LIVE')));
+    col.appendChild(meta);
+  } else if(s.loopback){
+    const nm=el('div','nm','System Audio'); col.appendChild(nm);
+    const DEF=t('default_device');
+    const lbList=[{idx:-1,label:DEF}].concat((ST.lb_speakers||[]).map((name,i)=>({idx:i,label:name})));
+    const meta=el('div','meta'); meta.appendChild(el('span',null,t('capture')+': '));
+    if(lbList.length>1){
+      // per-device loopback choice available (Windows): keep the dropdown
       const sel=deviceSelect(lbList, s.lb_name||DEF, '', lbl=>{ API.set_source(s.id,'lb_name', lbl===DEF?'':lbl).then(refresh); });
-      const meta=el('div','meta'); meta.appendChild(el('span',null,t('capture')+': ')); meta.appendChild(sel);
-      col.appendChild(meta);
+      meta.appendChild(sel);
     } else {
-      col.appendChild(deviceSelect(ST.in_devices, s.device, '', lbl=>{ API.set_source(s.id,'device',lbl).then(refresh); }));
-      const meta=el('div','meta');
-      const inv=el('span', s.inv?'mute-on':'', 'Ø'); inv.style.cursor='pointer'; inv.onclick=()=>API.set_source(s.id,'inv',!s.inv).then(refresh);
-      const mute=el('span', s.mute?'mute-on':'', ' · '+t('mute')); mute.style.cursor='pointer'; mute.onclick=()=>API.set_source(s.id,'mute',!s.mute).then(refresh);
-      meta.appendChild(inv); meta.appendChild(mute); col.appendChild(meta);
+      // native system tap (macOS 14.2+): the whole mix is captured, no device to pick
+      const lbl=el('span',null,t('system_mix')); lbl.style.color='#e3e5e1'; meta.appendChild(lbl);
     }
-    dev.appendChild(col);
-    row.appendChild(dev);
-    // balance seg (placeholder column)
-    const segc=el('div'); row.appendChild(segc);
-    // volume
-    const led=el('div','led', String(Math.round(s.vol*100)));
-    const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
-    const gv=()=>s.vol/1.5; gv.def=1/1.5;
-    bindFader(fader, gv, v=>{ s.vol=v*1.5; API.set_source(s.id,'vol',s.vol); led.textContent=Math.round(s.vol*100); });
-    row.appendChild(fader);
-    const vu=el('div','vu'); vu.dataset.srcvu=s.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
-    row.appendChild(led);
-    const rm=el('button','btn rrm','✕'); rm.title=t('remove_source');
-    rm.onclick=()=>API.remove_source(s.id).then(refresh); row.appendChild(rm);
-    box.appendChild(row);
-  });
+    col.appendChild(meta);
+  } else {
+    col.appendChild(deviceSelect(ST.in_devices, s.device, '', lbl=>{ API.set_source(s.id,'device',lbl).then(refresh); }));
+    const meta=el('div','meta');
+    const inv=el('span', s.inv?'mute-on':'', 'Ø'); inv.style.cursor='pointer'; inv.onclick=()=>API.set_source(s.id,'inv',!s.inv).then(refresh);
+    const mute=el('span', s.mute?'mute-on':'', ' · '+t('mute')); mute.style.cursor='pointer'; mute.onclick=()=>API.set_source(s.id,'mute',!s.mute).then(refresh);
+    meta.appendChild(inv); meta.appendChild(mute); col.appendChild(meta);
+  }
+  dev.appendChild(col);
+  row.appendChild(dev);
+  // balance seg (placeholder column)
+  const segc=el('div'); row.appendChild(segc);
+  // volume
+  const led=el('div','led', String(Math.round(s.vol*100)));
+  const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
+  const gv=()=>s.vol/1.5; gv.def=1/1.5;
+  bindFader(fader, gv, v=>{ s.vol=v*1.5; API.set_source(s.id,'vol',s.vol); led.textContent=Math.round(s.vol*100); });
+  row.appendChild(fader);
+  const vu=el('div','vu'); vu.dataset.srcvu=s.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
+  row.appendChild(led);
+  const rm=el('button','btn rrm','✕'); rm.title=t('remove_source');
+  rm.onclick=()=>API.remove_source(s.id).then(refresh); row.appendChild(rm);
+  return row;
+}
+
+// Each PA-220 stays half-height and holds ONE source. Extra sources spawn their
+// own half-height PA-220 · II / III … modules (same pattern as the MX-840 outputs),
+// so the module never overflows its fixed 124px cell.
+function renderSources(){
+  document.querySelectorAll('.mod-src-extra').forEach(s=>s.remove());
+  const box=$('rows-src'); box.innerHTML='';
+  const srcs=ST.sources;
+  const PER=1;
+  for(let i=0;i<Math.min(PER,srcs.length);i++) box.appendChild(renderSourceRow(srcs[i]));
+  if(srcs.length<=PER) return;
+  const stack=document.querySelector('.stack');
+  const hidden = $('mod-src') && $('mod-src').style.display==='none';
+  for(let g=PER, n=1; g<srcs.length; g+=PER, n++){
+    const sec=el('section','mod-src-extra'); sec.style.order='2';
+    if(hidden) sec.style.display='none';
+    const face=el('div','face mod u-half');
+    face.appendChild(el('div','phead',
+      '<div class="fp"><span class="marque">Errarium</span><span class="model">PA-220 · '+(ROMAN[n]||(n+1))+'</span><span class="fn">Preamplifier</span></div>'));
+    const pbody=el('div','pbody');
+    srcs.slice(g, g+PER).forEach(s=>pbody.appendChild(renderSourceRow(s)));
+    face.appendChild(pbody);
+    sec.appendChild(face);
+    stack.appendChild(sec);
+  }
 }
 
 const EQF=[20,31,62,125,250,500,'1k','2k','4k','8k','16k','20k'];
@@ -381,7 +476,7 @@ function setupPad(id, on, toggle, getXY, onXY){
 }
 
 function renderPhase(){
-  const seg=$('phase-seg'); seg.innerHTML='';
+  const seg=$('phase-seg'); if(!seg) return; seg.innerHTML='';
   ST.outputs.forEach(o=>{
     const nm=(o.device||('Out '+o.id)).split(' · ')[0].slice(0,10);
     const b=el('button', o.inv?'on':'', nm);
@@ -394,8 +489,22 @@ function renderPhase(){
 
 function renderPlayerParams(){
   const box=$('player-params'); if(!box) return;
-  const np=ST.np||{};
-  const rows=[[t('fmt_format'),np.codec||'—'],[t('fmt_rate'),np.rate||'—'],[t('fmt_bits'),np.bits||'—'],[t('fmt_ch'),np.ch||'—'],[t('fmt_stream'),np.kbps||'—']];
+  // реальный формат источника (снимается движком: ST.fmt = {rate, ch, codec})
+  const f=ST.fmt||{};
+  const chMap={1:'mono',2:'stereo',3:'2.1',4:'4.0',6:'5.1',8:'7.1'};
+  const rateHz=Math.round(f.rate||0);
+  const rate=rateHz>0 ? String(rateHz) : '—';
+  const chN=parseInt(f.ch);
+  const ch=(!isNaN(chN)&&chN>0)?(chMap[chN]||(chN+' ch')):'—';
+  const codec=(f.codec||'').trim()||'—';
+  // bits: для PCM-захвата движка (Float→32f, "N-bit"→N); сжатые кодеки (AAC/MP3/…) — нет «бит»
+  let bits='—';
+  if(/float|pcm/i.test(codec)) bits='32f';   // PCM-захват движка — float32 (32F)
+  else { const mb=codec.match(/(\d+)\s*-?\s*bit/i); if(mb) bits=mb[1]; }
+  // stream: реальный битрейт (только радио); иначе LIVE для потока, либо —
+  const kbps=Math.round(f.kbps||0);
+  const stream = kbps>0 ? (kbps+' kbps') : (/stream/i.test(codec)?'LIVE':'—');
+  const rows=[[t('fmt_format'),codec],[t('fmt_rate'),rate],[t('fmt_bits'),bits],[t('fmt_ch'),ch],[t('fmt_stream'),stream]];
   box.innerHTML='';
   rows.forEach(([k,v])=>{ const c=el('div','chip'); c.innerHTML=k+' <b>'+v+'</b>'; box.appendChild(c); });
 }
@@ -476,10 +585,24 @@ function renderTransport(){
   renderTransportPhase();
 }
 
+let vizGpu=false;   // окно анализатора показывает цветомузыку (WebGL) вместо столбиков
+// Color / GPU — РЕЖИМ показа (взаимоисключающие). B&W — независимый тумблер ч/б,
+// применяется к текущему показу (столбики ИЛИ цветомузыка), горит пока включён.
 function renderVizColor(){
-  document.querySelectorAll('#viz-color button').forEach(b=>{
-    b.classList.toggle('on', parseInt(b.dataset.cm)===(ST.viz.color_mode||0));
-  });
+  const bw=((ST&&ST.viz&&ST.viz.color_mode)||0)===1;
+  const c=$('btn-viz-color'), b=$('btn-viz-bw'), g=$('btn-viz-gpu');
+  if(c) c.classList.toggle('on', !vizGpu);
+  if(g) g.classList.toggle('on', vizGpu);
+  if(b) b.classList.toggle('on', bw);
+}
+// Переключение окна анализатора: столбики ⇄ цветомузыка (iframe viz.html).
+function setVizGpu(on){
+  vizGpu=on;
+  const f=$('viz-gl'), c=$('viz-canvas');
+  if(on && f && !f.getAttribute('src')) f.setAttribute('src','viz.html');   // ленивая загрузка
+  if(f) f.style.display=on?'block':'none';
+  if(c) c.style.display=on?'none':'block';
+  renderVizColor(); setArtEls();
 }
 
 function renderChooser(){
@@ -506,19 +629,115 @@ function meterLoop(){
     for(const id in m.srcs){ const lr=m.srcs[id]; const pk=Math.max(lr[0],lr[1]);
       const vu=document.querySelector('[data-srcvu="'+id+'"]'); if(vu) vu.style.setProperty('--v', pct(Math.min(1,pk*1.4))+'%'); }
     if(m.spectrum){ for(let i=0;i<12;i++){ const mm=document.querySelector('[data-eqm="'+i+'"]'); if(mm){ const v=Math.min(1, (m.spectrum[i]||0)); mm.style.setProperty('--v', pct(v)+'%'); } } }
-    if(m.np){ ST = ST||{}; updateNP(m.np); }
-    drawViz(m.bands || m.spectrum, m.wave, m.level, m.beat);
+    ST = ST||{};
+    // реальный формат источника (снимается движком) — перерисовываем параметры при изменении
+    if(m.fmt){ const pf=ST.fmt||{};
+      if(pf.rate!==m.fmt.rate||pf.ch!==m.fmt.ch||pf.codec!==m.fmt.codec||pf.kbps!==m.fmt.kbps){ ST.fmt=m.fmt; renderPlayerParams(); } }
+    // авто-переключение источника в движке (приоритет последнего) — подтягиваем новое состояние
+    if(m.src_sig!==undefined && m.src_sig!==_srcSig){ _srcSig=m.src_sig; if(typeof refresh==='function') refresh(); }
+    // Радио управляется ПРАВДОЙ движка: если радио в движке больше нет (убрали/переключили
+    // источник) — сбрасываем радио-данные в плеере, чтобы старое не «застревало».
+    if(m.radio_active){ _radioWasActive=true; }
+    else if(_radioWasActive){ _radioWasActive=false; clearRadioState(); }
+    const src0=(ST.sources&&ST.sources[0])||{};
+    if(_radioUrl && _radioStation && m.radio_active){   // радио — станция + трек из ICY, а не системный now-playing
+      const song=((m.radio_title)||'').trim();
+      if(song!==_radioSong){ _radioSong=song; _radioCover=null; _lastArtId=null;
+        if(song) fetchRadioCover(song).then(u=>{ if(_radioSong===song){ _radioCover=u; _lastArtId=null; } });
+      }
+      // STOP = сброс: время на 0:00 и счётчик обнуляется; на паузе — замирает.
+      const now=Date.now();
+      let curTxt;
+      if(m.radio_stopped){
+        _radioStart=now; _radioPauseAt=0; _radioPausedAccum=0; curTxt='0:00';
+      } else {
+        if(m.radio_paused){ if(_radioPauseAt===0) _radioPauseAt=now; }
+        else if(_radioPauseAt){ _radioPausedAccum+=now-_radioPauseAt; _radioPauseAt=0; }
+        const frozen = _radioPauseAt ? _radioPauseAt : now;
+        const e=Math.max(0,(frozen-_radioStart-_radioPausedAccum)/1000), mm=Math.floor(e/60), ss=Math.floor(e%60);
+        curTxt=mm+':'+(ss<10?'0':'')+ss;
+      }
+      updateNP({ title: song||_radioStation.name||'Radio',
+                 sub: (m.radio_stopped?'⏹ ':(m.radio_paused?'⏸ ':''))+(song?(_radioStation.name||'RADIO'):'RADIO'),
+                 cur:curTxt, total:'LIVE', posfrac:0, art_id:'radio:'+_radioUrl });
+      // передаём текущую обложку песни в движок — чтобы мини-плеер показывал её, а не лого станции
+      const cover=_radioCover||(_radioStation&&_radioStation.favicon)||'';
+      if(cover!==_radioCoverPushed && API && API.set_radio_cover){ _radioCoverPushed=cover; API.set_radio_cover(cover); }
+    } else if(src0.loopback){         // системный звук / приложение — now-playing из системной медиа-сессии
+      // На Windows захват идёт по УСТРОЙСТВУ (изоляция приложения недоступна), поэтому
+      // показываем системный now-playing всегда — обложка подхватывается из любого плеера.
+      updateNP(m.np||{ title:'', sub:'', cur:'', total:'', posfrac:0, art_id:'' });
+    } else {                          // физический вход или нет источника — now-playing неприменим, очищаем
+      updateNP({ title: src0.device||src0.name||'—', sub:'INPUT', cur:'', total:'', posfrac:0, art_id:'' });
+    }
+    if(vizGpu){
+      const f=$('viz-gl');
+      if(f&&f.contentWindow) f.contentWindow.postMessage({viz:m.viz||{}, running:m.running, color_mode:(ST.viz&&ST.viz.color_mode)||0}, '*');
+    } else {
+      drawViz(m.bands || m.spectrum, m.wave, m.level, m.beat);
+    }
   }).catch(()=>{});
 }
+function setMarquee(rowId, mqId, text){
+  const row=$(rowId), mq=$(mqId); if(!row||!mq) return;
+  if(mq.textContent!==text){ mq.textContent=text; }
+  // measure on next frame so layout is settled, then enable scroll only on overflow
+  requestAnimationFrame(()=>{
+    const over=mq.scrollWidth - row.clientWidth;
+    if(over>4){
+      row.style.setProperty('--mqshift', (-over-8)+'px');
+      row.style.setProperty('--mqdur', Math.max(6, (over+row.clientWidth)/26)+'s');
+      row.classList.add('scroll');
+    } else { row.classList.remove('scroll'); row.style.removeProperty('--mqshift'); }
+  });
+}
 function updateNP(np){
-  if($('np-title')) $('np-title').textContent = np.title || '—';
-  if($('np-sub')) { $('np-sub').style.display = ''; $('np-sub').textContent = np.sub || ''; }
+  setMarquee('np-title','np-title-mq', np.title || '—');
+  if($('np-sub')) $('np-sub').style.display = '';
+  setMarquee('np-sub','np-sub-mq', np.sub || '');
   if($('np-src')) $('np-src').textContent = np.source ? (t('now_playing')+' · '+np.source) : t('now_playing');
   if($('np-led')) $('np-led').classList.toggle('on', !!np.title);
   if($('np-cur')) $('np-cur').textContent = np.cur || '0:00';
   if($('np-tot')) $('np-tot').textContent = np.total || '0:00';
   if($('np-bar')) $('np-bar').style.width = Math.max(0,Math.min(100,(np.posfrac||0)*100))+'%';
-  if(np.codec!==undefined){ ST.np=np; renderPlayerParams(); }
+  updateArt(np.art_id||'');
+}
+// Обложка трека: показывается в плеере (#pl-art) и в анализаторе (#viz-art, по тумблеру
+// Cover). Большая картинка тянется отдельным методом только при смене трека (art_id).
+let _lastArtId=null, _artUrl=null;
+let vizArtOn=true;   // тумблер «Cover» в анализаторе (нажат → обложка; отжат → спектр на всю полосу)
+function setArtEls(){
+  const v=$('viz-art');
+  if(v){ if(_artUrl && vizArtOn){ v.src=_artUrl; v.style.display='block'; } else { v.removeAttribute('src'); v.style.display='none'; } }
+  const p=$('pl-art'), c=$('pl-cover');
+  if(p&&c){ if(_artUrl){ p.src=_artUrl; c.style.display='block'; } else { p.removeAttribute('src'); c.style.display='none'; } }
+}
+function applyVizArtToggle(){
+  const b=$('btn-viz-art'); if(b) b.classList.toggle('on', vizArtOn);
+  setArtEls();
+}
+function updateArt(artId){
+  // Радио — обложка трека (iTunes) или лого станции (управляется в meterLoop через _radioCover).
+  if(_radioUrl && _radioStation){
+    const u=_radioCover||_radioStation.favicon||null;
+    if(u!==_artUrl){ _artUrl=u; setArtEls(); }
+    _lastArtId=artId; return;
+  }
+  if(artId===_lastArtId){
+    // тот же трек (в т.ч. пауза) — НЕ перезапрашиваем обложку (иначе мигает);
+    // только дотягиваем, если она ещё не загрузилась.
+    if(artId && !_artUrl && API && API.now_playing_art){
+      API.now_playing_art().then(url=>{ if(url){ _artUrl=url; setArtEls(); } }).catch(()=>{});
+    }
+    return;
+  }
+  _lastArtId=artId;
+  if(!artId){ _artUrl=null; setArtEls(); return; }
+  _artUrl=null; setArtEls();   // новый трек — очистить, пока не пришла его обложка
+  if(API && API.now_playing_art){
+    // не сбрасываем уже показанную обложку при пустом ответе — ставим только когда есть url.
+    API.now_playing_art().then(url=>{ if(url){ _artUrl=url; setArtEls(); } }).catch(()=>{});
+  }
 }
 function drawViz(spec, wave, level, beat){
   if(!vizCanvas){ vizCanvas=$('viz-canvas'); if(!vizCanvas) return; vizCtx=vizCanvas.getContext('2d'); }
@@ -532,7 +751,7 @@ function drawViz(spec, wave, level, beat){
   if(spec){
     const n=spec.length, bw=w/n;
     for(let i=0;i<n;i++){
-      const v=Math.min(1,spec[i]*1.2); const bh=v*h*0.9;
+      const v=Math.min(1,spec[i]*2.0); const bh=Math.pow(v,0.82)*h*0.96;
       let col;
       if(cm===1) col='rgba(220,220,210,'+(0.3+0.6*v)+')';
       else if(cm===2){ col='hsla(45,70%,'+(40+40*v)+'%,'+(0.3+0.6*v)+')'; }
@@ -546,9 +765,13 @@ function drawViz(spec, wave, level, beat){
 
 /* ================= WIRE BUTTONS ================= */
 function wire(){
-  $('btn-add-out').onclick=()=>API.add_output().then(refresh);
-  $('btn-add-src').onclick=()=>API.add_source().then(refresh);
-  $('btn-add-sys').onclick=()=>API.add_loopback().then(refresh);
+  $('btn-add-out').onclick=()=>API.add_output().then(refresh);   // «+» — добавить новый канал
+  const bOut=$('btn-output'); if(bOut) bOut.onclick=()=>openOutputMenu(bOut);
+  $('btn-add-src').onclick=()=>API.add_source().then(refresh);   // «+» — добавить источник
+  $('btn-add-sys').onclick=()=>API.add_loopback().then(refresh); // System — системный звук
+  const bIn=$('btn-input'); if(bIn) bIn.onclick=()=>openInputMenu(bIn);
+  const bTun=$('btn-tuner'); if(bTun) bTun.onclick=()=>openTuner();
+  const bEj=$('btn-radio-eject'); if(bEj) bEj.onclick=()=>{ clearRadioState(); if(API.tuner_stop) API.tuner_stop().then(refresh); }; // выгнать радио
   $('md-prev').onclick=()=>API.media_prev();
   $('md-play').onclick=()=>API.media_playpause();
   $('md-next').onclick=()=>API.media_next();
@@ -571,6 +794,7 @@ function wire(){
   $('btn-viz-open').onclick=()=>API.open_viz();
   $('btn-fx').onclick=()=>{ const m=$('mod-fx'); if(m.style.display==='none'){ setVis('mod-fx',true);} m.scrollIntoView({behavior:'smooth'}); };
   $('btn-calib').onclick=openCalib;
+  const bm=$('btn-mini'); if(bm) bm.onclick=()=>{ if(API.toggle_mini) API.toggle_mini(); };
   $('calib-cancel').onclick=()=>{ $('calib-modal').style.display='none'; };
   $('calib-run').onclick=()=>{
     const sel=$('calib-mic'); const lbl=sel.options.length?sel.options[sel.selectedIndex].text:'';
@@ -594,7 +818,15 @@ function wire(){
   };
   $('calib-again').onclick=()=>{ $('calib-results').style.display='none'; $('calib-setup').style.display=''; $('calib-status').textContent=''; };
   $('calib-done').onclick=()=>{ $('calib-modal').style.display='none'; refresh(); };
-  document.querySelectorAll('#viz-color button').forEach(b=>{ b.onclick=()=>{ const cm=parseInt(b.dataset.cm); ST.viz.color_mode=cm; API.set_viz('color_mode',cm); renderVizColor(); }; });
+  // Color — столбики (и сбрасывает ч/б в цвет); GPU — цветомузыка (повтор → следующий режим);
+  // B&W — независимый тумблер ч/б поверх текущего показа (не меняет режим).
+  const cb=$('btn-viz-color'); if(cb) cb.onclick=()=>{ ST.viz.color_mode=0; API.set_viz('color_mode',0); setVizGpu(false); };
+  const bwb=$('btn-viz-bw'); if(bwb) bwb.onclick=()=>{ const v=((ST.viz&&ST.viz.color_mode)||0)===1?0:1; ST.viz.color_mode=v; API.set_viz('color_mode',v); renderVizColor(); };
+  const gpub=$('btn-viz-gpu'); if(gpub) gpub.onclick=()=>{ if(!vizGpu) setVizGpu(true); else { const f=$('viz-gl'); if(f&&f.contentWindow) f.contentWindow.postMessage({cmd:'next'},'*'); } };
+  vizArtOn = !(ST && ST.ui && ST.ui.viz_art===false);   // ST ещё null при wire() → по умолчанию вкл.
+  applyVizArtToggle();
+  const ab=$('btn-viz-art');
+  if(ab) ab.onclick=()=>{ vizArtOn=!vizArtOn; applyVizArtToggle(); if(API.set_ui)API.set_ui('viz_art',vizArtOn); };
 }
 
 function openCalib(){
@@ -651,15 +883,220 @@ function openAbout(){
 window.openAbout=openAbout;
 
 /* ================= BOOT ================= */
+// ── выпадающее меню (в границах окна) ──
+function closeMenu(){ const m=document.querySelector('.dropmenu'); if(m) m.remove(); document.removeEventListener('mousedown',_menuOutside,true); }
+function _menuOutside(e){ const m=document.querySelector('.dropmenu'); if(m && !m.contains(e.target)) closeMenu(); }
+function openMenu(anchor, items){
+  closeMenu();
+  const m=el('div','dropmenu');
+  items.forEach(it=>{ if(it.sep){ m.appendChild(el('div','dropsep')); return; }
+    const d=el('div','dropitem', it.label); d.onclick=()=>{ closeMenu(); it.onClick(); }; m.appendChild(d); });
+  document.body.appendChild(m);
+  const r=anchor.getBoundingClientRect();
+  let left=Math.max(8, Math.min(r.left, innerWidth-m.offsetWidth-8));
+  let top=r.bottom+4; if(top+m.offsetHeight>innerHeight-8) top=Math.max(8, r.top-m.offsetHeight-4);
+  m.style.left=left+'px'; m.style.top=top+'px';
+  setTimeout(()=>document.addEventListener('mousedown',_menuOutside,true),0);
+}
+function openInputMenu(anchor){
+  const items=[{label:'🔊 '+t('system_mix'), onClick:()=>{ clearRadioState(); API.set_input('system','').then(refresh); }}];
+  (ST.lb_speakers||[]).forEach(name=>items.push({label:'▸ '+name, onClick:()=>{ clearRadioState(); API.set_input('app',name).then(refresh); }}));
+  const ins=(ST.in_devices||[]); if(ins.length) items.push({sep:true});
+  ins.forEach(d=>items.push({label:'🎤 '+d.label, onClick:()=>{ clearRadioState(); API.set_input('device',d.label).then(refresh); }}));
+  openMenu(anchor, items);
+}
+function openOutputMenu(anchor){
+  const outs=(ST.out_devices||[]); const first=(ST.outputs||[])[0];
+  const items=outs.map(d=>({label:d.label, onClick:()=>{ if(first) API.set_output(first.id,'device',d.label).then(refresh); }}));
+  if(!items.length) items.push({label:'—', onClick:()=>{}});
+  openMenu(anchor, items);
+}
+
+// ── Tuner: дашборд интернет-радио (данные/логотипы — Radio Browser) ──
+let _tunerBuilt=false, _tunerSearchT=null;
+const TUNER_MAX=24;   // 6 колонок × 4 ряда
+let _radioGroups=null, _radioActive='A', _radioSelected=null;
+
+function tunerLoadGroups(){
+  const saved = ST && ST.ui && ST.ui.radio_groups;
+  if(saved && typeof saved==='object' && saved.A){ _radioGroups=saved; }
+  else { _radioGroups={A:{name:'A',list:[]},B:{name:'B',list:[]},C:{name:'C',list:[]}}; }
+  _radioActive = (ST&&ST.ui&&ST.ui.radio_group) || 'A';
+  if(!_radioGroups[_radioActive]) _radioActive='A';
+  // последняя станция (запоминается между запусками) — выбрана по умолчанию
+  if(!_radioSelected && ST&&ST.ui&&ST.ui.radio_last) _radioSelected = ST.ui.radio_last;
+}
+function tunerSaveGroups(){ if(API&&API.set_ui){ API.set_ui('radio_groups',_radioGroups); API.set_ui('radio_group',_radioActive); } }
+
+function openTuner(){
+  buildTunerModal();
+  tunerLoadGroups();
+  $('tuner-modal').style.display='flex';
+  $('tuner-search').value='';
+  renderTunerTabs();
+  renderSavedGroup();
+}
+function closeTuner(){ const m=$('tuner-modal'); if(m) m.style.display='none'; }
+function buildTunerModal(){
+  if(_tunerBuilt) return; _tunerBuilt=true;
+  const modal=el('div'); modal.id='tuner-modal';
+  modal.innerHTML='<div class="tuner-panel">'
+    +'<div class="tuner-head"><span class="tuner-title">Tuner</span>'
+    +'<div class="tuner-tabs" id="tuner-tabs"></div>'
+    +'<input class="tuner-search" id="tuner-search" placeholder="Поиск станции для добавления…">'
+    +'<button class="tuner-play" id="tuner-play" title="Играть выбранную станцию">▶ Играть</button>'
+    +'<button class="tuner-close" id="tuner-close" title="Закрыть">✕</button></div>'
+    +'<div class="tuner-grid" id="tuner-grid"></div>'
+    +'<div class="tuner-undo" id="tuner-undo" style="display:none"></div></div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('mousedown', e=>{ if(e.target===modal) closeTuner(); });
+  $('tuner-close').onclick=closeTuner;
+  $('tuner-play').onclick=()=>{ if(_radioSelected) tunerPlay(_radioSelected); };
+  $('tuner-search').addEventListener('input', e=>{ clearTimeout(_tunerSearchT); const q=e.target.value.trim();
+    _tunerSearchT=setTimeout(()=>loadTunerStations(q), 350); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && $('tuner-modal') && $('tuner-modal').style.display==='flex') closeTuner(); });
+}
+function renderTunerTabs(){
+  const c=$('tuner-tabs'); if(!c) return; c.innerHTML='';
+  Object.keys(_radioGroups).forEach(k=>{
+    const b=el('button','tuner-tab'+(k===_radioActive?' on':''), _radioGroups[k].name||k);
+    b.title='Двойной клик — переименовать группу';
+    b.onclick=()=>{ _radioActive=k; tunerSaveGroups(); renderTunerTabs(); $('tuner-search').value=''; renderSavedGroup(); };
+    b.ondblclick=()=>tunerRenameTab(b,k);
+    c.appendChild(b);
+  });
+}
+function tunerRenameTab(btn,k){
+  const inp=el('input','tuner-tab-edit'); inp.value=_radioGroups[k].name||k; inp.maxLength=14;
+  btn.replaceWith(inp); inp.focus(); inp.select();
+  let done=false;
+  const finish=(save)=>{ if(done)return; done=true; if(save){ _radioGroups[k].name=(inp.value.trim()||k); tunerSaveGroups(); } renderTunerTabs(); };
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') finish(true); if(e.key==='Escape') finish(false); });
+  inp.addEventListener('blur',()=>finish(true));
+}
+// поиск пуст → сохранённые станции группы; есть запрос → результаты Radio Browser (добавление)
+async function loadTunerStations(query){
+  const grid=$('tuner-grid'); if(!grid) return;
+  if(!query){ renderSavedGroup(); return; }
+  grid.innerHTML='<div class="tuner-loading">…</div>';
+  const url='https://de1.api.radio-browser.info/json/stations/search?hidebroken=true&order=votes&reverse=true&limit='+TUNER_MAX+'&name='+encodeURIComponent(query);
+  try{ const r=await fetch(url); const list=await r.json(); renderTunerSearch(Array.isArray(list)?list:[]); }
+  catch(e){ grid.innerHTML='<div class="tuner-loading">Нет сети или сервис недоступен</div>'; }
+}
+function tunerTile(station, opts){
+  const tile=el('div','tuner-tile'+(opts.add?' add':''));
+  const letter=((station.name||'?').trim()[0]||'?').toUpperCase();
+  if(station.favicon){
+    const img=el('img','tuner-logo'); img.src=station.favicon;
+    img.onerror=()=>{ img.remove(); tile.classList.add('no-logo'); tile.dataset.letter=letter; };
+    tile.appendChild(img);
+  } else { tile.classList.add('no-logo'); tile.dataset.letter=letter; }
+  tile.appendChild(el('div','tuner-name', station.name||'—'));
+  if(opts.country) tile.appendChild(el('div','tuner-country', station.country||''));
+  if(opts.removable){ const rm=el('button','tuner-rm','✕'); rm.onclick=(e)=>{ e.stopPropagation(); opts.onRemove(); }; tile.appendChild(rm); }
+  tile.onclick=opts.onClick;
+  // Двойной клик по сохранённой станции — сразу Play и закрытие дашборда.
+  if(!opts.add){ tile.ondblclick=()=>{ tunerPlay(station); closeTuner(); }; }
+  return tile;
+}
+function renderSavedGroup(){
+  const grid=$('tuner-grid'); if(!grid) return; grid.innerHTML='';
+  const g=_radioGroups[_radioActive]; const list=(g&&g.list)||[];
+  if(!list.length){ grid.innerHTML='<div class="tuner-loading">Группа пуста. Найдите станции в поиске выше и нажмите, чтобы добавить.</div>'; return; }
+  list.forEach((s,idx)=>{
+    const tile=tunerTile(s,{ removable:true,
+      onRemove:()=>tunerRemoveStation(_radioActive, idx),
+      onClick:()=>{ _radioSelected=s; renderSavedGroup(); }   // клик = выбрать
+    });
+    const u=s.url_resolved||s.url;
+    if(_radioSelected&&(_radioSelected.url_resolved||_radioSelected.url)===u) tile.classList.add('sel');
+    if(u===_radioUrl) tile.classList.add('playing');
+    grid.appendChild(tile);
+  });
+}
+function renderTunerSearch(list){
+  const grid=$('tuner-grid'); grid.innerHTML='';
+  if(!list.length){ grid.innerHTML='<div class="tuner-loading">Ничего не найдено</div>'; return; }
+  list.slice(0,TUNER_MAX).forEach(r=>{
+    const station={ name:r.name||'—', url:r.url_resolved||r.url||'', favicon:r.favicon||'', country:r.countrycode||r.country||'' };
+    grid.appendChild(tunerTile(station,{ add:true, country:true, onClick:()=>tunerAddToGroup(station) }));
+  });
+}
+let _radioUndoTimer=null;
+function tunerRemoveStation(key, idx){
+  const g=_radioGroups[key]; if(!g||!g.list[idx]) return;
+  const st=g.list[idx];
+  const u=st.url_resolved||st.url;
+  if(_radioSelected&&(_radioSelected.url_resolved||_radioSelected.url)===u) _radioSelected=null;
+  g.list.splice(idx,1); tunerSaveGroups(); renderSavedGroup();
+  showTunerUndo(st, key, idx);
+}
+function showTunerUndo(st, key, idx){
+  const bar=$('tuner-undo'); if(!bar) return;
+  bar.innerHTML=''; bar.style.display='flex';
+  bar.appendChild(el('span',null,'Удалено: '));
+  bar.appendChild(el('b',null, st.name||'станция'));
+  const u=el('button',null,'Вернуть');
+  u.onclick=()=>{ const g=_radioGroups[key]; if(g){ g.list.splice(Math.min(idx,g.list.length),0,st); tunerSaveGroups(); renderSavedGroup(); } hideTunerUndo(); };
+  bar.appendChild(u);
+  clearTimeout(_radioUndoTimer); _radioUndoTimer=setTimeout(hideTunerUndo, 6000);
+}
+function hideTunerUndo(){ const bar=$('tuner-undo'); if(bar){ bar.style.display='none'; bar.innerHTML=''; } clearTimeout(_radioUndoTimer); }
+function tunerAddToGroup(station){
+  const g=_radioGroups[_radioActive]; if(!g) return;
+  if(g.list.some(x=>x.url===station.url)){ $('tuner-search').value=''; renderSavedGroup(); return; }
+  if(g.list.length>=TUNER_MAX){ alert('В группе уже '+TUNER_MAX+' станций'); return; }
+  g.list.push(station); tunerSaveGroups();
+  $('tuner-search').value=''; renderSavedGroup();
+}
+let _radioUrl=null, _radioStation=null, _radioStart=0, _radioSong='', _radioCover=null;
+let _srcSig=null;   // сигнатура активного источника (для авто-обновления после auto-follow)
+let _radioWasActive=false;   // было ли радио активно (для сброса данных при его остановке)
+let _radioCoverPushed=null;  // последняя обложка, переданная в движок (для мини-плеера)
+let _radioPauseAt=0, _radioPausedAccum=0;   // учёт пауз радио для счётчика времени
+// Сброс состояния радио в UI — вызывается при выборе обычного источника, чтобы
+// в окне now-playing/формата не висели старые радио-данные (станция/обложка/трек).
+function clearRadioState(){ _radioUrl=null; _radioStation=null; _radioSong=''; _radioCover=null; _lastArtId=null; _radioCoverPushed=null; }
+async function fetchRadioCover(song){
+  try{
+    const r=await fetch('https://itunes.apple.com/search?limit=1&entity=song&term='+encodeURIComponent(song));
+    const j=await r.json();
+    const a=j&&j.results&&j.results[0]&&j.results[0].artworkUrl100;
+    if(a) return a.replace('100x100','300x300');
+  }catch(e){}
+  return null;
+}
+function tunerPlay(s){
+  const url=s.url_resolved||s.url; if(!url) return;
+  if(_radioUrl===url){            // повторный клик по играющей станции — стоп/пауза
+    _radioUrl=null; _radioStation=null;
+    if(API&&API.tuner_stop) API.tuner_stop().then(refresh).catch(()=>{});
+    renderSavedGroup();
+    return;
+  }
+  _radioUrl=url; _radioStation=s; _radioStart=Date.now(); _radioPauseAt=0; _radioPausedAccum=0;
+  _radioSelected=s;
+  if(API&&API.set_ui) API.set_ui('radio_last', s);   // запомнить последнюю станцию
+  // имя станции + лого передаём в движок — чтобы радио-now-playing был и у мини-плеера
+  if(API&&API.tuner_play) API.tuner_play(url, s.name||'', s.favicon||'').then(refresh).catch(()=>{});
+  renderSavedGroup();
+}
+
 function boot(){
   API = window.pywebview.api;
   wire();
+  setupAutoFit();
   refresh().then(()=>{
-    renderChooser();
     const u=(ST&&ST.ui)||{};
+    // восстановить свёрнутые блоки
+    const mods=u.mods||{};
+    ['mod-player','mod-out','mod-src','mod-eq','mod-fx','mod-viz'].forEach(id=>{ if(mods[id]===false) setVis(id,false,false); });
+    renderChooser();
     setLang(u.lang||'ru', false);
     setTheme(u.theme||'dark', false);
     setCols(u.cols||2, false);
+    vizArtOn = !(u.viz_art===false);   // восстановить состояние тумблера обложки
+    applyVizArtToggle();
   });
   setInterval(meterLoop, 50);
 }

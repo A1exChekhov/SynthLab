@@ -233,6 +233,13 @@ class Source:
         self.in_peakR = 0.0
         self.loopback = False   # capture system audio via WASAPI loopback (no VB-CABLE)
         self.lb_name = ""       # render-device name to loopback
+        self.radio = False      # интернет-радио (Tuner) как источник
+        self.radio_url = ""     # поток выбранной станции
+        # реальный формат источника (пишется движком при старте/работе)
+        self.fmt_rate = 0.0
+        self.fmt_ch = 0
+        self.fmt_codec = ""
+        self.fmt_kbps = 0
         # runtime: one stereo queue per output speaker id
         self.queues = {}   # out_id -> queue.Queue
         self.bufs = {}     # out_id -> ndarray (n, 2)
@@ -290,6 +297,11 @@ class Engine:
         self._t0 = 0.0          # момент старта — для плавного fade-in
         self._fade_dur = 0.6    # сек: защита от громкого звука при включении
         self.cal_capture = False  # пишем ли выход в кольцевые буферы (для HOLD)
+        # интернет-радио (Tuner)
+        self.radio_title = ""
+        self.radio_paused = False
+        self.radio_stopped = False
+        self.radio_kbps = 0
         # EQ + effects (each effect has its own on/off)
         self.eq_on = False
         self.eq_gains = [0.0] * len(EQ_FREQS)
@@ -716,6 +728,70 @@ class Engine:
         except Exception:
             pass
 
+    def _radio_worker(self, src):
+        """Интернет-радио: тянем поток по URL, декодируем в 48k стерео float32 и
+        кладём блоки в очереди выходов (как loopback). Заголовок трека — из ICY."""
+        try:
+            import miniaudio
+        except Exception:
+            self.radio_stopped = True
+            src.fmt_codec = "no decoder"
+            return
+        client = None
+        try:
+            def on_title(_c, title):
+                self.radio_title = (title or "").strip()
+            try:
+                import ssl as _ssl
+                sslctx = _ssl.create_default_context() if src.radio_url.lower().startswith("https") else None
+            except Exception:
+                sslctx = None
+            try:
+                client = miniaudio.IceCastClient(src.radio_url, update_stream_title=on_title, ssl_context=sslctx)
+            except Exception:
+                client = miniaudio.IceCastClient(src.radio_url)
+            try:
+                self.radio_kbps = int(getattr(client, "audio_format", 0) or 0)
+            except Exception:
+                self.radio_kbps = 0
+            src.fmt_rate = float(SR); src.fmt_ch = 2; src.fmt_codec = "stream"
+            stream = miniaudio.stream_any(
+                client, source_format=miniaudio.FileFormat.UNKNOWN,
+                output_format=miniaudio.SampleFormat.FLOAT32,
+                nchannels=2, sample_rate=int(SR), frames_to_read=BLOCK)
+            next(stream)   # prime
+            silence = np.zeros((BLOCK, 2), dtype=np.float32)
+            # выходим и по сбросу _running, и при снятии флага radio (eject/смена источника):
+            # _running переиспользуется при перезапуске на loopback, поэтому проверяем оба
+            while src._running and getattr(src, "radio", False):
+                if self.radio_paused:
+                    blk = silence
+                else:
+                    chunk = stream.send(BLOCK)
+                    arr = np.frombuffer(memoryview(chunk), dtype=np.float32)
+                    if arr.size < 2:
+                        continue
+                    blk = np.ascontiguousarray(arr.reshape(-1, 2))
+                    src.in_peakL = float(np.max(np.abs(blk[:, 0]))) if blk.size else 0.0
+                    src.in_peakR = float(np.max(np.abs(blk[:, 1]))) if blk.size else 0.0
+                # Backpressure: miniaudio декодирует БЫСТРЕЕ реального времени (буферизует сеть),
+                # поэтому пишем БЛОКИРУЮЩЕ — продюсер пасуется под темп выхода (реальное время),
+                # без выброса блоков (выброс давал периодические пропуски — «волны»).
+                for q in list(src.queues.values()):
+                    try:
+                        q.put(blk, timeout=0.5)
+                    except queue.Full:
+                        pass   # выход подвис >0.5с — пропускаем блок для него, но не дропаем поток
+        except Exception:
+            pass
+        finally:
+            self.radio_stopped = True
+            try:
+                if client is not None:
+                    client.close()
+            except Exception:
+                pass
+
     def start(self, sources, outputs, test=False):
         self.stop()
         self.sources = sources
@@ -730,6 +806,13 @@ class Engine:
                 for src in sources:
                     src.queues = {o.id: queue.Queue(MAXBUF) for o in outputs}
                     src.bufs = {o.id: np.zeros((0, 2), dtype=np.float32) for o in outputs}
+
+                    if getattr(src, "radio", False) and src.radio_url:
+                        self.radio_stopped = False; self.radio_paused = False; self.radio_title = ""
+                        src._running = True
+                        src._thread = threading.Thread(target=self._radio_worker, args=(src,), daemon=True)
+                        src._thread.start()
+                        continue
 
                     if src.loopback:
                         src._running = True
