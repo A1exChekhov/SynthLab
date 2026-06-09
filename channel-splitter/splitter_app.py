@@ -89,6 +89,7 @@ class AppCore:
         self._mini_y = 40
         self._radio_cover = ""   # обложка радио (URL), для плеера и мини-плеера
         self._radio_cover_title = ""   # трек, для которого уже искали обложку
+        self._np_art = ""        # обложка системного трека (SMTC), фоновый кэш
         self._tray = None
         self._quitting = False
         self._main_hidden = False
@@ -109,6 +110,8 @@ class AppCore:
             else:
                 self.add_source()
             self.save_settings()
+        # фоновый опрос «сейчас играет» (название/позиция/обложка) — вне bridge-потока
+        threading.Thread(target=self._np_poll, daemon=True).start()
 
     # ── язык: выбирается при установке (installer пишет lang.txt) ──
     def _install_lang(self):
@@ -491,6 +494,12 @@ class AppCore:
 
     def quit_app(self):
         self._quitting = True
+        # Гарантия выхода СРАЗУ: даже если очистка/WebView2/потоки залипнут — добиваем процесс.
+        def _force():
+            import time as _t
+            _t.sleep(1.5)
+            os._exit(0)
+        threading.Thread(target=_force, daemon=True).start()
         try:
             self.save_settings()
         except Exception:
@@ -520,13 +529,6 @@ class AppCore:
                     w.destroy()
             except Exception:
                 pass
-        # Гарантия от «зависания»: если WebView2/фоновые потоки не дадут процессу
-        # выйти штатно — принудительно завершаемся через короткую паузу.
-        def _force():
-            import time as _t
-            _t.sleep(1.5)
-            os._exit(0)
-        threading.Thread(target=_force, daemon=True).start()
         return True
 
     # ── visualizer ──
@@ -658,10 +660,15 @@ class AppCore:
         return True
 
     def now_playing_art(self):
-        """Обложка текущего трека → data:URL/URL. Для радио — переданная из JS обложка,
-        иначе миниатюра Windows Media Session (base64)."""
+        """Мгновенно из кэша: радио — обложка станции/трека, иначе — миниатюра SMTC,
+        которую обновляет фоновый поллер (никакого блокирующего async на bridge-потоке)."""
         if self._radio_active() and self._radio_cover:
             return self._radio_cover
+        return self._np_art or None
+
+    def _smtc_art(self):
+        """Миниатюра текущего трека из Windows Media Session → data:URL. Вызывается
+        ТОЛЬКО из фонового поллера (не из bridge), с таймаутом."""
         try:
             from winsdk.windows.media.control import \
                 GlobalSystemMediaTransportControlsSessionManager as MM
@@ -684,12 +691,30 @@ class AppCore:
                 reader = DataReader(stream)
                 await reader.load_async(size)
                 buf = bytearray(size)
-                reader.read_bytes(buf)   # winsdk: заполняет переданный массив
+                reader.read_bytes(buf)
                 ct = (getattr(stream, "content_type", "") or "image/jpeg")
                 return "data:" + ct + ";base64," + base64.b64encode(bytes(buf)).decode("ascii")
-            return asyncio.run(go())
+            return asyncio.run(asyncio.wait_for(go(), 5.0))
         except Exception:
             return None
+
+    def _np_poll(self):
+        """Фоновый опрос «сейчас играет» (название/позиция/обложка) — чтобы bridge
+        никогда не блокировался на медленном WinRT/SMTC."""
+        import time as _t
+        last_key = None
+        while not self._quitting:
+            try:
+                np_ = _now_playing()
+                if np_:
+                    self._np_cache = np_
+                    key = (np_.get("title", ""), np_.get("sub", ""), np_.get("source", ""))
+                    if key != last_key:
+                        last_key = key
+                        self._np_art = self._smtc_art() or ""
+            except Exception:
+                pass
+            _t.sleep(1.0)
 
     # ── Input / Tuner (выбор источника + интернет-радио) ──
     def _first_source(self):
@@ -806,7 +831,11 @@ class AppCore:
                                 dtype="float32", callback=in_cb)
             st.start()
             base = None
+            base_samples = []
+            rel_hist = []
             base_d = (a.delay_ms, b.delay_ms)
+            applied = float(base_d[1] - base_d[0])   # текущее соотношение задержек (b−a), мс
+            DEADZONE = 3.0   # мс: дрейф мельче — НЕ трогаем (держим соотношение момента HOLD)
             WINs = int(0.9 * core.SR)
 
             def lag(mc, o):
@@ -838,18 +867,29 @@ class AppCore:
                     continue
                 m = micr[-WINs:] if micr.size >= WINs else micr
                 t0, r0 = lag(m, sa[-WINs:]); t1, r1 = lag(m, sb[-WINs:])
-                if r0 < 3.0 or r1 < 3.0:
+                if r0 < 4.0 or r1 < 4.0:
                     continue   # ненадёжно (моно-контент/тишина) — пропускаем
                 rel = (t1 - t0) / core.SR * 1000.0
+                # отсев выбросов + медиана истории — иначе задержка «дёргается»
+                if rel_hist:
+                    med = sorted(rel_hist)[len(rel_hist) // 2]
+                    if abs(rel - med) > 40.0:
+                        continue   # явный выброс (микрофон поймал не то) — игнор
+                rel_hist.append(rel); rel_hist = rel_hist[-7:]
+                rel_med = sorted(rel_hist)[len(rel_hist) // 2]
                 if base is None:
-                    base = rel
+                    base_samples.append(rel_med)
+                    if len(base_samples) >= 3:
+                        base = sorted(base_samples)[len(base_samples) // 2]   # стабильный «ноль»
                     continue
-                drift = rel - base
-                net = (base_d[1] - base_d[0]) - drift
-                if net >= 0:
-                    a.set_delay(0.0); b.set_delay(min(300.0, net))
+                target = (base_d[1] - base_d[0]) - (rel_med - base)
+                err = target - applied
+                if abs(err) > DEADZONE:               # держим соотношение; правим только заметный дрейф
+                    applied += max(-2.0, min(2.0, err * 0.25))   # плавно, не более ~2 мс за шаг
+                if applied >= 0:
+                    a.set_delay(0.0); b.set_delay(min(300.0, applied))
                 else:
-                    a.set_delay(min(300.0, -net)); b.set_delay(0.0)
+                    a.set_delay(min(300.0, -applied)); b.set_delay(0.0)
         except Exception:
             pass
         finally:
@@ -1030,12 +1070,8 @@ class AppCore:
         spec = [min(1.0, float(x) * 26.0) for x in e.spectrum]
         bands = [float(x) for x in (e.viz_bands if e.running else e.viz_bands * 0.9)]
         beat = float(e.viz_beat); e.viz_beat = 0.0
-        # now playing (refresh ~ every second)
-        self._np_tick += 1
-        if self._np_tick % 20 == 0:
-            np_ = _now_playing()
-            if np_:
-                self._np_cache = np_
+        # «сейчас играет» берём из ФОНОВОГО кэша (опрос SMTC в отдельном потоке) —
+        # никакого блокирующего async на bridge-потоке, иначе зависал UI/название/обложка.
         np = dict(self._np_cache)
         pos = float(np.get("pos", 0.0)); end = float(np.get("end", 0.0))
         np["cur"] = _mmss(pos); np["total"] = _mmss(end)
@@ -1052,8 +1088,10 @@ class AppCore:
                 self._radio_cover_title = rt
                 threading.Thread(target=self._fetch_radio_cover_bg, args=(rt,), daemon=True).start()
             np["art_id"] = "radio:" + rt + ("#c" if self._radio_cover else "#")
+            np["art_url"] = self._radio_cover or ""   # прямая ссылка (radio) — для мини без async
         else:
             np["art_id"] = "%s|%s|%s" % (np.get("title", ""), np.get("sub", ""), np_app)
+            np["art_url"] = self._np_art or ""   # обложка системного трека из фонового кэша
         np.update({"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0"})
         s0 = self.sources[0] if self.sources else None
         if radio_active:
@@ -1148,28 +1186,22 @@ def _post_start(app):
     _start_tray(app)
 
 
-def _single_instance_handle():
-    """Глобальный named mutex: и для обнаружения установщиком (AppMutex), и чтобы
-    второй запуск не плодил зомби-процессы (старое радио «засело в системе»).
-    Возвращает дескриптор (держать живым), или False если копия уже запущена."""
+def _create_app_mutex():
+    """Глобальный named mutex (= AppMutex в installer.iss): по нему установщик находит
+    и закрывает работающую копию при обновлении. Держим дескриптор живым.
+    Второй запуск НЕ блокируем — иначе нельзя перезапустить, пока копия в трее."""
     if os.name != "nt":
         return None
     try:
         import ctypes
-        h = ctypes.windll.kernel32.CreateMutexW(None, False, core.APP_MUTEX_NAME)
-        if ctypes.windll.kernel32.GetLastError() == 183:   # ERROR_ALREADY_EXISTS
-            return False
-        return h
+        return ctypes.windll.kernel32.CreateMutexW(None, False, core.APP_MUTEX_NAME)
     except Exception:
         return None
 
 
 def main():
-    _mtx = _single_instance_handle()
-    if _mtx is False:
-        return   # копия уже запущена (возможно, свёрнута в трей) — не плодим дубли
     core_app = AppCore()
-    core_app._mutex = _mtx   # держим ссылку живой до конца процесса
+    core_app._mutex = _create_app_mutex()   # для авто-закрытия установщиком; держим живым
     win = webview.create_window(
         "Channel Splitter — Errarium",
         url=_asset("index.html"),
