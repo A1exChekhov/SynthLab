@@ -1058,11 +1058,9 @@ let _radioPauseAt=0, _radioPausedAccum=0;   // учёт пауз радио дл
 // в окне now-playing/формата не висели старые радио-данные (станция/обложка/трек).
 function clearRadioState(){ _radioUrl=null; _radioStation=null; _radioSong=''; _radioCover=null; _lastArtId=null; _radioCoverPushed=null; }
 async function fetchRadioCover(song){
+  // Запрос к iTunes делаем в Python (в WebView fetch к iTunes блокируется CORS).
   try{
-    const r=await fetch('https://itunes.apple.com/search?limit=1&entity=song&term='+encodeURIComponent(song));
-    const j=await r.json();
-    const a=j&&j.results&&j.results[0]&&j.results[0].artworkUrl100;
-    if(a) return a.replace('100x100','300x300');
+    if(API && API.radio_cover){ const u=await API.radio_cover(song); return u||null; }
   }catch(e){}
   return null;
 }

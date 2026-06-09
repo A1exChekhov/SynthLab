@@ -601,6 +601,25 @@ class AppCore:
             return False
         return self._media_cmd("stop")
 
+    def radio_cover(self, song=None):
+        """Поиск обложки трека радио в iTunes на стороне Python (в WebView fetch к
+        iTunes блокируется CORS — нет Access-Control-Allow-Origin). Возвращает URL 300×300."""
+        if not song:
+            return ""
+        try:
+            import urllib.request, urllib.parse, json
+            u = "https://itunes.apple.com/search?limit=1&entity=song&term=" + urllib.parse.quote(song)
+            req = urllib.request.Request(u, headers={"User-Agent": "ChannelSplitter/2.2"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                j = json.load(r)
+            res = j.get("results") or []
+            art = res[0].get("artworkUrl100") if res else None
+            if art:
+                return art.replace("100x100", "300x300")
+        except Exception:
+            pass
+        return ""
+
     def set_radio_cover(self, url=None):
         """Обложка радио (URL логотипа станции / арт трека из iTunes), приходит из JS —
         у радио нет SMTC-миниатюры, поэтому мини-плеер берёт её отсюда."""
