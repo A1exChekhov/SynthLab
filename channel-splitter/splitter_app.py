@@ -561,6 +561,12 @@ class AppCore:
 
     # ── управление системным плеером (Windows Media Session) ──
     def _media_cmd(self, cmd):
+        # Выполняем SMTC-команду в ОТДЕЛЬНОМ потоке — мост отвечает мгновенно,
+        # кнопка никогда не «залипает» (раньше async на bridge-потоке мог тормозить).
+        threading.Thread(target=self._media_cmd_bg, args=(cmd,), daemon=True).start()
+        return True
+
+    def _media_cmd_bg(self, cmd):
         try:
             from winsdk.windows.media.control import \
                 GlobalSystemMediaTransportControlsSessionManager as MM
@@ -599,9 +605,9 @@ class AppCore:
                     except Exception:
                         pass
                 return True
-            return asyncio.run(go())
+            asyncio.run(asyncio.wait_for(go(), 6.0))
         except Exception:
-            return False
+            pass
 
     def _radio_active(self):
         return (self.engine.running and not self.engine.radio_stopped
