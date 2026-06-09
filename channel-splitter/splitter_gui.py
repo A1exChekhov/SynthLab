@@ -75,7 +75,8 @@ SR = 48000
 CAL_CAP = 48000 * 2  # 2 c кольцевой буфер выхода (для HOLD-автоподстройки)
 BLOCK = 960          # ~20 ms blocks — fewer glitches with Bluetooth
 MAXBUF = 60          # deeper ring buffer to absorb clock drift
-RS_TARGET = 3 * BLOCK  # целевое заполнение буфера выхода (сэмплы) для дрейф-ресемплинга
+RS_TARGET = 24 * BLOCK  # целевое заполнение буфера выхода (сэмплы): глубоко — запас на джиттер BT
+RS_MINFILL = 6 * BLOCK  # ниже этого буфер опасно мелок — НЕ ускоряем потребление (чтобы не рвать)
 MIN_DB = -48.0
 MAX_DB = 3.0
 SEGS = 30
@@ -696,6 +697,8 @@ class Engine:
                 if not any_radio and fill is not None:
                     err = (fill - RS_TARGET) / float(RS_TARGET)
                     rt = 1.0 + max(-0.01, min(0.01, 0.3 * err))   # ±1% коридор скорости
+                    if fill < RS_MINFILL:
+                        rt = min(rt, 1.0)   # буфер мелок — НЕ ускоряем потребление (иначе рвёт)
                     state["rs_ratio"] = ratio * 0.97 + rt * 0.03   # медленное сглаживание
                 sumL, sumR = self._apply_spatial(state["sp"], sumL, sumR, frames)
 
