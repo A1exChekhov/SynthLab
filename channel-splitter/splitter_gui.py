@@ -875,6 +875,7 @@ class Engine:
                 o.stream = None
                 try:
                     o.stream = sd.OutputStream(device=o.idx, channels=2, samplerate=SR, blocksize=BLOCK,
+                                               latency="high",   # глубокий буфер: BT не рвёт при нагрузке/джиттере
                                                dtype="float32", callback=self._out_cb(o, tones[i % len(tones)]))
                     o.stream.start()
                     streams.append(o.stream)

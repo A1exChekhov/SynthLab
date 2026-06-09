@@ -1073,9 +1073,10 @@ class AppCore:
         e = self.engine
         outs = {o.id: float(o.peak) for o in self.outputs}
         srcs = {s.id: [float(s.in_peakL), float(s.in_peakR)] for s in self.sources}
-        # быстрые C-конвертации (а не Python-циклы) — меньше держим GIL у аудио-потока
-        spec = np.minimum(1.0, np.asarray(e.spectrum, dtype=float) * 26.0).tolist()
-        bands = (np.asarray(e.viz_bands, dtype=float) * (1.0 if e.running else 0.9)).tolist()
+        # ВНИМАНИЕ: в meters() имя np занято локально (словарь now-playing), поэтому
+        # numpy через него звать НЕЛЬЗЯ. Конвертируем методами массива/циклом.
+        spec = [min(1.0, float(x) * 26.0) for x in e.spectrum]
+        bands = (e.viz_bands if e.running else e.viz_bands * 0.9).tolist()
         beat = float(e.viz_beat); e.viz_beat = 0.0
         # «сейчас играет» берём из ФОНОВОГО кэша (опрос SMTC в отдельном потоке) —
         # никакого блокирующего async на bridge-потоке, иначе зависал UI/название/обложка.
@@ -1111,7 +1112,7 @@ class AppCore:
         src_sig = ",".join("%s|%s|%s" % (getattr(s, "lb_name", ""), getattr(s, "radio", False),
                                           getattr(s, "label", "")) for s in self.sources)
         try:
-            wave = np.asarray(e.viz_wave, dtype=float).tolist()
+            wave = e.viz_wave.tolist()
         except Exception:
             wave = []
         return {"running": e.running, "outs": outs, "srcs": srcs, "spectrum": spec,
