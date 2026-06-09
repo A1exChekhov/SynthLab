@@ -660,46 +660,19 @@ class Engine:
                 else:
                     sumL = sumR = np.zeros(frames, dtype=np.float32)
             else:
-                # ── адаптивная дрейф-компенсация на выход ──
-                # Часы каждого устройства (особенно BT) чуть «гуляют»: буфер выхода
-                # периодически пустеет (→ тишина) или переполняется (→ сброс блока),
-                # что слышно как «волны». Подбираем число ВХОДНЫХ сэмплов in_n так,
-                # чтобы заполнение буфера держалось у цели, и ресемплим in_n→frames.
-                # Радио уже само пасуется (blocking put) — для него passthrough.
-                any_radio = any(getattr(s, "radio", False) for s in self.sources)
-                ratio = state.get("rs_ratio", 1.0)
-                if any_radio:
-                    in_n = frames; ratio = 1.0; state["rs_ratio"] = 1.0; state["rs_acc"] = 0.0
-                else:
-                    acc = state.get("rs_acc", 0.0) + frames * ratio
-                    in_n = int(acc); state["rs_acc"] = acc - in_n
-                    if in_n < 1:
-                        in_n = 1
-                sumL = np.zeros(in_n, dtype=np.float32)
-                sumR = np.zeros(in_n, dtype=np.float32)
-                fill = None
+                # Простой гладкий тракт: берём ровно frames из глубокого буфера.
+                # (Поблочный дрейф-ресемплинг убран — он давал разрывы на стыках блоков
+                #  и «рваный» звук на BT. Дрейф колонок компенсируется задержкой/HOLD.)
+                sumL = np.zeros(frames, dtype=np.float32)
+                sumR = np.zeros(frames, dtype=np.float32)
                 for src in self.sources:
-                    block = self._pull(src, out.id, in_n)
-                    q = src.queues.get(out.id); bf = src.bufs.get(out.id)
-                    f = (q.qsize() * BLOCK if q is not None else 0) + (bf.shape[0] if bf is not None else 0)
-                    fill = f if fill is None else min(fill, f)
+                    block = self._pull(src, out.id, frames)
                     if src.mute:
                         continue
                     lg, rg = lr_gains(src.bal)
                     v = src.vol
                     sumL = sumL + block[:, 0] * (v * lg)
                     sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * (v * rg)
-                if in_n != frames:
-                    xp = np.linspace(0.0, 1.0, in_n, dtype=np.float32)
-                    xq = np.linspace(0.0, 1.0, frames, dtype=np.float32)
-                    sumL = np.interp(xq, xp, sumL).astype(np.float32)
-                    sumR = np.interp(xq, xp, sumR).astype(np.float32)
-                if not any_radio and fill is not None:
-                    err = (fill - RS_TARGET) / float(RS_TARGET)
-                    rt = 1.0 + max(-0.01, min(0.01, 0.3 * err))   # ±1% коридор скорости
-                    if fill < RS_MINFILL:
-                        rt = min(rt, 1.0)   # буфер мелок — НЕ ускоряем потребление (иначе рвёт)
-                    state["rs_ratio"] = ratio * 0.97 + rt * 0.03   # медленное сглаживание
                 sumL, sumR = self._apply_spatial(state["sp"], sumL, sumR, frames)
 
             # Цветомузыка анализирует сигнал ДО громкости/мастера — иначе при низком
