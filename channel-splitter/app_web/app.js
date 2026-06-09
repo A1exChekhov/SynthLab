@@ -493,7 +493,7 @@ function renderPlayerParams(){
   const f=ST.fmt||{};
   const chMap={1:'mono',2:'stereo',3:'2.1',4:'4.0',6:'5.1',8:'7.1'};
   const rateHz=Math.round(f.rate||0);
-  const rate=rateHz>0 ? String(rateHz) : '—';
+  const rate=rateHz>0 ? (rateHz>=1000 ? (rateHz/1000).toFixed(1)+'k' : String(rateHz)) : '—';
   const chN=parseInt(f.ch);
   const ch=(!isNaN(chN)&&chN>0)?(chMap[chN]||(chN+' ch')):'—';
   const codec=(f.codec||'').trim()||'—';
@@ -1076,7 +1076,7 @@ function tunerPlay(s){
   _radioSelected=s;
   if(API&&API.set_ui) API.set_ui('radio_last', s);   // запомнить последнюю станцию
   // имя станции + лого передаём в движок — чтобы радио-now-playing был и у мини-плеера
-  if(API&&API.tuner_play) API.tuner_play(url, s.name||'', s.favicon||'').then(refresh).catch(()=>{});
+  if(API&&API.tuner_play) API.tuner_play(url, s.name||'', s.favicon||'', s.codec||'', s.bitrate||0).then(refresh).catch(()=>{});
   renderSavedGroup();
 }
 

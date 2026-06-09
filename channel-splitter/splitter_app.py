@@ -687,12 +687,19 @@ class AppCore:
         self._save()
         return True
 
-    def tuner_play(self, url=None, name="", favicon=""):
+    def tuner_play(self, url=None, name="", favicon="", codec="", bitrate=0):
         if not url:
             return False
         s = self._first_source()
         s.radio = True; s.radio_url = url; s.loopback = False; s.lb_name = ""
         s.name = name or "Radio"
+        # кодек/битрейт — из метаданных станции (radio-browser); частоту зондирует воркер
+        s.fmt_codec = (codec or "").upper()
+        try:
+            s.fmt_kbps = int(float(bitrate or 0))
+        except Exception:
+            s.fmt_kbps = 0
+        s.fmt_rate = 0.0; s.fmt_ch = 0
         self._radio_cover = favicon or ""   # лого станции — мгновенная обложка (до арта трека)
         self.engine.radio_stopped = False; self.engine.radio_paused = False; self.engine.radio_title = ""
         if self.engine.running:
@@ -1011,8 +1018,10 @@ class AppCore:
         np.update({"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0"})
         s0 = self.sources[0] if self.sources else None
         if radio_active:
-            fmt = {"rate": float(getattr(s0, "fmt_rate", 0) or core.SR), "ch": 2,
-                   "codec": "stream", "kbps": int(e.radio_kbps or 0)}
+            fmt = {"rate": float(getattr(s0, "fmt_rate", 0) or 44100),
+                   "ch": int(getattr(s0, "fmt_ch", 0) or 2),
+                   "codec": (getattr(s0, "fmt_codec", "") or "STREAM"),
+                   "kbps": int(getattr(s0, "fmt_kbps", 0) or e.radio_kbps or 0)}
         else:
             fmt = {"rate": 48000, "ch": 2, "codec": "PCM", "kbps": 0}
         src_sig = ",".join("%s|%s|%s" % (getattr(s, "lb_name", ""), getattr(s, "radio", False),
