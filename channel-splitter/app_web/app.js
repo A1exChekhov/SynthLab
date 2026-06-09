@@ -450,9 +450,25 @@ function renderFX(){
   fxFader('rev','reverb_mix',0,0.8, v=>Math.round(v*100)+'');
   fxFader('revsize','reverb_size',0,1, v=>Math.round(v*100)+'');
   bindFxToggle('lbl-comp','comp_on','Compressor');
-  bindFxToggle('lbl-bass','bass_on','Bass');
+  bindBassToggle();
   bindFxToggle('lbl-mb','monobass_on','Mono-Bass');
   bindFxToggle('lbl-rev','reverb_on','Reverb');
+}
+// Bass: включение при ползунке 0 дБ ничего бы не дало — подставляем слышимые +6 дБ
+function bindBassToggle(){
+  const e=$('lbl-bass'); if(!e) return;
+  const upd=()=>{ e.textContent='Bass · '+(ST.fx.bass_on?'ON':'OFF'); e.classList.toggle('on',!!ST.fx.bass_on); };
+  upd();
+  e.onclick=()=>{
+    ST.fx.bass_on=!ST.fx.bass_on;
+    if(ST.fx.bass_on && (ST.fx.bass||0)<1){
+      ST.fx.bass=6; API.set_fx('bass',6);
+      const f=$('fader-bass'); if(f){ const cap=f.querySelector('.cap'); if(cap) cap.style.left=(6/12*100)+'%'; }
+      const l=$('led-bass'); if(l) l.textContent='6';
+    }
+    API.set_fx('bass_on',ST.fx.bass_on);
+    upd();
+  };
 }
 function bindFxToggle(id,key,name){
   const e=$(id); if(!e)return;
@@ -1096,7 +1112,7 @@ function boot(){
     vizArtOn = !(u.viz_art===false);   // восстановить состояние тумблера обложки
     applyVizArtToggle();
   });
-  setInterval(meterLoop, 50);
+  setInterval(meterLoop, 80);   // 12.5 Гц — плавно для индикаторов, но меньше нагрузка на мост/аудио
 }
 if(window.pywebview && window.pywebview.api){ boot(); }
 else { window.addEventListener('pywebviewready', boot); }

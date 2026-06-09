@@ -720,7 +720,7 @@ class AppCore:
                         self._np_art = self._smtc_art() or ""
             except Exception:
                 pass
-            _t.sleep(1.0)
+            _t.sleep(2.0)
 
     # ── Input / Tuner (выбор источника + интернет-радио) ──
     def _first_source(self):
@@ -1073,8 +1073,9 @@ class AppCore:
         e = self.engine
         outs = {o.id: float(o.peak) for o in self.outputs}
         srcs = {s.id: [float(s.in_peakL), float(s.in_peakR)] for s in self.sources}
-        spec = [min(1.0, float(x) * 26.0) for x in e.spectrum]
-        bands = [float(x) for x in (e.viz_bands if e.running else e.viz_bands * 0.9)]
+        # быстрые C-конвертации (а не Python-циклы) — меньше держим GIL у аудио-потока
+        spec = np.minimum(1.0, np.asarray(e.spectrum, dtype=float) * 26.0).tolist()
+        bands = (np.asarray(e.viz_bands, dtype=float) * (1.0 if e.running else 0.9)).tolist()
         beat = float(e.viz_beat); e.viz_beat = 0.0
         # «сейчас играет» берём из ФОНОВОГО кэша (опрос SMTC в отдельном потоке) —
         # никакого блокирующего async на bridge-потоке, иначе зависал UI/название/обложка.
@@ -1110,7 +1111,7 @@ class AppCore:
         src_sig = ",".join("%s|%s|%s" % (getattr(s, "lb_name", ""), getattr(s, "radio", False),
                                           getattr(s, "label", "")) for s in self.sources)
         try:
-            wave = [float(x) for x in e.viz_wave]
+            wave = np.asarray(e.viz_wave, dtype=float).tolist()
         except Exception:
             wave = []
         return {"running": e.running, "outs": outs, "srcs": srcs, "spectrum": spec,
