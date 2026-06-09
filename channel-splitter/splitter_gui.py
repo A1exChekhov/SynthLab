@@ -75,6 +75,7 @@ SR = 48000
 CAL_CAP = 48000 * 2  # 2 c кольцевой буфер выхода (для HOLD-автоподстройки)
 BLOCK = 960          # ~20 ms blocks — fewer glitches with Bluetooth
 MAXBUF = 60          # deeper ring buffer to absorb clock drift
+RS_TARGET = 3 * BLOCK  # целевое заполнение буфера выхода (сэмплы) для дрейф-ресемплинга
 MIN_DB = -48.0
 MAX_DB = 3.0
 SEGS = 30
@@ -658,16 +659,44 @@ class Engine:
                 else:
                     sumL = sumR = np.zeros(frames, dtype=np.float32)
             else:
-                sumL = np.zeros(frames, dtype=np.float32)
-                sumR = np.zeros(frames, dtype=np.float32)
+                # ── адаптивная дрейф-компенсация на выход ──
+                # Часы каждого устройства (особенно BT) чуть «гуляют»: буфер выхода
+                # периодически пустеет (→ тишина) или переполняется (→ сброс блока),
+                # что слышно как «волны». Подбираем число ВХОДНЫХ сэмплов in_n так,
+                # чтобы заполнение буфера держалось у цели, и ресемплим in_n→frames.
+                # Радио уже само пасуется (blocking put) — для него passthrough.
+                any_radio = any(getattr(s, "radio", False) for s in self.sources)
+                ratio = state.get("rs_ratio", 1.0)
+                if any_radio:
+                    in_n = frames; ratio = 1.0; state["rs_ratio"] = 1.0; state["rs_acc"] = 0.0
+                else:
+                    acc = state.get("rs_acc", 0.0) + frames * ratio
+                    in_n = int(acc); state["rs_acc"] = acc - in_n
+                    if in_n < 1:
+                        in_n = 1
+                sumL = np.zeros(in_n, dtype=np.float32)
+                sumR = np.zeros(in_n, dtype=np.float32)
+                fill = None
                 for src in self.sources:
-                    block = self._pull(src, out.id, frames)
+                    block = self._pull(src, out.id, in_n)
+                    q = src.queues.get(out.id); bf = src.bufs.get(out.id)
+                    f = (q.qsize() * BLOCK if q is not None else 0) + (bf.shape[0] if bf is not None else 0)
+                    fill = f if fill is None else min(fill, f)
                     if src.mute:
                         continue
                     lg, rg = lr_gains(src.bal)
                     v = src.vol
                     sumL = sumL + block[:, 0] * (v * lg)
                     sumR = sumR + (-block[:, 1] if src.inv else block[:, 1]) * (v * rg)
+                if in_n != frames:
+                    xp = np.linspace(0.0, 1.0, in_n, dtype=np.float32)
+                    xq = np.linspace(0.0, 1.0, frames, dtype=np.float32)
+                    sumL = np.interp(xq, xp, sumL).astype(np.float32)
+                    sumR = np.interp(xq, xp, sumR).astype(np.float32)
+                if not any_radio and fill is not None:
+                    err = (fill - RS_TARGET) / float(RS_TARGET)
+                    rt = 1.0 + max(-0.01, min(0.01, 0.3 * err))   # ±1% коридор скорости
+                    state["rs_ratio"] = ratio * 0.97 + rt * 0.03   # медленное сглаживание
                 sumL, sumR = self._apply_spatial(state["sp"], sumL, sumR, frames)
 
             if out.stereo and not out.is_sub:
