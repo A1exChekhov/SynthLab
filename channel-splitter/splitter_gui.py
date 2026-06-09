@@ -699,12 +699,15 @@ class Engine:
                     state["rs_ratio"] = ratio * 0.97 + rt * 0.03   # медленное сглаживание
                 sumL, sumR = self._apply_spatial(state["sp"], sumL, sumR, frames)
 
+            # Цветомузыка анализирует сигнал ДО громкости/мастера — иначе при низком
+            # master почти не реагирует. Берём предусиленный микс источников.
+            if out is self._spec_src:
+                self._update_spectrum(((sumL + sumR) * 0.5).astype(np.float32))
+
             if out.stereo and not out.is_sub:
                 # полноценный стерео-выход (наушники): L→L, R→R, эффекты по каналам
                 L = self._chain(out, state, sumL, frames, "L")
                 R = self._chain(out, state, sumR, frames, "R")
-                if out is self._spec_src:
-                    self._update_spectrum((L + R) * 0.5)
                 if self.cal_capture:
                     self._cap(out, ((L + R) * 0.5).astype(np.float32))
                 out.peak = float(max(np.max(np.abs(L)) if L.size else 0.0,
@@ -715,8 +718,6 @@ class Engine:
                 b = out.bal
                 mix = sumL * (0.5 - b * 0.5) + sumR * (0.5 + b * 0.5)
                 mix = self._chain(out, state, mix, frames, "m")
-                if out is self._spec_src:
-                    self._update_spectrum(mix)
                 if self.cal_capture:
                     self._cap(out, mix)
                 out.peak = float(np.max(np.abs(mix))) if mix.size else 0.0

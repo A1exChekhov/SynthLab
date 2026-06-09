@@ -87,7 +87,8 @@ class AppCore:
         self._viz_win = None
         self._mini_x = 40
         self._mini_y = 40
-        self._radio_cover = ""   # обложка радио (URL из JS), для мини-плеера
+        self._radio_cover = ""   # обложка радио (URL), для плеера и мини-плеера
+        self._radio_cover_title = ""   # трек, для которого уже искали обложку
         self._tray = None
         self._quitting = False
         self._main_hidden = False
@@ -620,6 +621,11 @@ class AppCore:
             pass
         return ""
 
+    def _fetch_radio_cover_bg(self, title):
+        cover = self.radio_cover(title)
+        if cover and self._radio_cover_title == title and self._radio_active():
+            self._radio_cover = cover
+
     def set_radio_cover(self, url=None):
         """Обложка радио (URL логотипа станции / арт трека из iTunes), приходит из JS —
         у радио нет SMTC-миниатюры, поэтому мини-плеер берёт её отсюда."""
@@ -701,6 +707,7 @@ class AppCore:
             s.fmt_kbps = 0
         s.fmt_rate = 0.0; s.fmt_ch = 0
         self._radio_cover = favicon or ""   # лого станции — мгновенная обложка (до арта трека)
+        self._radio_cover_title = ""        # сбросить — искать обложку для нового трека
         self.engine.radio_stopped = False; self.engine.radio_paused = False; self.engine.radio_title = ""
         if self.engine.running:
             self._reapply()
@@ -1013,8 +1020,15 @@ class AppCore:
         if radio_active:
             np["title"] = e.radio_title or np.get("title", "") or "Radio"
             np["source"] = "Radio"
-        np["art_id"] = ("radio:" + (e.radio_title or "")) if radio_active else \
-            "%s|%s|%s" % (np.get("title", ""), np.get("sub", ""), np_app)
+        if radio_active:
+            # обложку радио ищем в бэкенде (для мини-плеера / now_playing_art) при смене трека
+            rt = e.radio_title or ""
+            if rt and rt != self._radio_cover_title:
+                self._radio_cover_title = rt
+                threading.Thread(target=self._fetch_radio_cover_bg, args=(rt,), daemon=True).start()
+            np["art_id"] = "radio:" + rt + ("#c" if self._radio_cover else "#")
+        else:
+            np["art_id"] = "%s|%s|%s" % (np.get("title", ""), np.get("sub", ""), np_app)
         np.update({"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0"})
         s0 = self.sources[0] if self.sources else None
         if radio_active:
