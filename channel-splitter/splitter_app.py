@@ -492,16 +492,41 @@ class AppCore:
     def quit_app(self):
         self._quitting = True
         try:
+            self.save_settings()
+        except Exception:
+            pass
+        try:
+            if self._hold_on:
+                self._hold_stop = True
+        except Exception:
+            pass
+        try:
+            self.engine.stop()          # останавливает потоки источников (радио/loopback)
+        except Exception:
+            pass
+        if self.gpu:
+            try:
+                self.gpu.stop()
+            except Exception:
+                pass
+        try:
             if self._tray is not None:
                 self._tray.stop()
         except Exception:
             pass
-        for w in (self._mini, self._win):
+        for w in (self._mini, self._viz_win, self._win):
             try:
                 if w is not None:
                     w.destroy()
             except Exception:
                 pass
+        # Гарантия от «зависания»: если WebView2/фоновые потоки не дадут процессу
+        # выйти штатно — принудительно завершаемся через короткую паузу.
+        def _force():
+            import time as _t
+            _t.sleep(1.5)
+            os._exit(0)
+        threading.Thread(target=_force, daemon=True).start()
         return True
 
     # ── visualizer ──
@@ -1123,8 +1148,28 @@ def _post_start(app):
     _start_tray(app)
 
 
+def _single_instance_handle():
+    """Глобальный named mutex: и для обнаружения установщиком (AppMutex), и чтобы
+    второй запуск не плодил зомби-процессы (старое радио «засело в системе»).
+    Возвращает дескриптор (держать живым), или False если копия уже запущена."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        h = ctypes.windll.kernel32.CreateMutexW(None, False, core.APP_MUTEX_NAME)
+        if ctypes.windll.kernel32.GetLastError() == 183:   # ERROR_ALREADY_EXISTS
+            return False
+        return h
+    except Exception:
+        return None
+
+
 def main():
+    _mtx = _single_instance_handle()
+    if _mtx is False:
+        return   # копия уже запущена (возможно, свёрнута в трей) — не плодим дубли
     core_app = AppCore()
+    core_app._mutex = _mtx   # держим ссылку живой до конца процесса
     win = webview.create_window(
         "Channel Splitter — Errarium",
         url=_asset("index.html"),

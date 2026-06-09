@@ -782,16 +782,19 @@ class Engine:
                 client = miniaudio.IceCastClient(src.radio_url)
             # реальные частота/каналы источника — зондируем ОТДЕЛЬНЫМ коротким соединением
             # (чтение из основного «съело» бы заголовок OGG/WAV)
+            pc = None
             try:
                 pc = miniaudio.IceCastClient(src.radio_url, ssl_context=sslctx)
                 di = miniaudio.decode(bytes(pc.read(64000)))
                 src.fmt_rate = float(di.sample_rate); src.fmt_ch = int(di.nchannels)
-                try:
-                    pc.close()
-                except Exception:
-                    pass
             except Exception:
                 src.fmt_rate = 44100.0; src.fmt_ch = 2
+            finally:
+                if pc is not None:
+                    try:
+                        pc.close()
+                    except Exception:
+                        pass
             if not src.fmt_codec:
                 try:
                     src.fmt_codec = getattr(client, "audio_format", None).name
