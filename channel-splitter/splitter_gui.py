@@ -338,6 +338,9 @@ class Engine:
         self.viz_wave = np.full(self.VIZ_W, 0.5, dtype=np.float32)  # осциллограмма 0..1
         self._ana_buf = np.zeros(4096, dtype=np.float64)            # скользящий буфер FFT
         self._ana_win = np.hanning(4096)
+        self._ana_tick = 0          # прореживание FFT-анализа (каждый 3-й блок)
+        self._eq_bins = None        # кэш индексов бинов по полосам EQ
+        self._ana_freqs = None
         # пользовательский стиль цветомузыки (читается GPU-движком вживую)
         self.viz_cfg = {
             "color_mode": 0,    # 0=Цвет, 1=Ч/Б, 2=Монотон
@@ -510,13 +513,21 @@ class Engine:
         else:
             buf[:-n] = buf[n:]
             buf[-n:] = x
+        # FFT-анализ дорог (4096 точек под GIL) — буфер копим каждый блок, а сам
+        # анализ делаем каждый 3-й (~60 мс): аудио-callback освобождается быстрее,
+        # Bluetooth не голодает; для глаз (UI 12.5 Гц) незаметно.
+        self._ana_tick = (self._ana_tick + 1) % 3
+        if self._ana_tick:
+            return
         mag = np.abs(np.fft.rfft(buf * self._ana_win)) / (N * 0.5)
-        freqs = np.fft.rfftfreq(N, 1.0 / SR)
+        if self._eq_bins is None:
+            freqs = np.fft.rfftfreq(N, 1.0 / SR)
+            self._ana_freqs = freqs
+            self._eq_bins = [np.where((freqs >= lo) & (freqs < hi))[0] for lo, hi in EQ_EDGES]
         sp = self.spectrum
-        for i, (lo, hi) in enumerate(EQ_EDGES):
-            m = (freqs >= lo) & (freqs < hi)
-            sp[i] = (float(mag[m].mean()) * EQ_TILT[i]) if m.any() else 0.0
-        self._update_viz(buf, mag, freqs)
+        for i, bins in enumerate(self._eq_bins):
+            sp[i] = (float(mag[bins].mean()) * EQ_TILT[i]) if bins.size else 0.0
+        self._update_viz(buf, mag, self._ana_freqs)
 
     def _update_viz(self, x, mag, freqs):
         """High-resolution features for the colour-music visualizer."""

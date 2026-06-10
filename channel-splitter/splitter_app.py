@@ -718,6 +718,9 @@ class AppCore:
                     if key != last_key:
                         last_key = key
                         self._np_art = self._smtc_art() or ""
+                    elif not self._np_art and (np_.get("title") or ""):
+                        # Windows отдаёт миниатюру ПОЗЖЕ названия — дотягиваем, пока не появится
+                        self._np_art = self._smtc_art() or ""
             except Exception:
                 pass
             _t.sleep(2.0)
@@ -1207,7 +1210,24 @@ def _create_app_mutex():
         return None
 
 
+def _boost_audio_priority():
+    """Аудио — главный продукт: HIGH-приоритет процесса + точные таймеры (1 мс).
+    UI (WebView2) живёт в ОТДЕЛЬНЫХ процессах msedgewebview2 и не выигрывает
+    у наших аудио-callback'ов планировщик — BT перестаёт голодать."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        ctypes.windll.winmm.timeBeginPeriod(1)
+        HIGH_PRIORITY_CLASS = 0x00000080
+        ctypes.windll.kernel32.SetPriorityClass(
+            ctypes.windll.kernel32.GetCurrentProcess(), HIGH_PRIORITY_CLASS)
+    except Exception:
+        pass
+
+
 def main():
+    _boost_audio_priority()
     core_app = AppCore()
     core_app._mutex = _create_app_mutex()   # для авто-закрытия установщиком; держим живым
     win = webview.create_window(
