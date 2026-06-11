@@ -52,6 +52,7 @@ const I18N = {
     tip_calib:'Авто-выравнивание задержек по микрофону',
     tip_hold:'Зафиксировать текущую синхронизацию и онлайн-удерживать её по микрофону (дрейф BT)',
     tip_sync:'Калибровка синхронизации: тяни, пока звук колонок не совпадёт (сдвиг задержки между ними)',
+    tip_center:'В центр — нулевая задержка (синхрон)',
     tip_delay:'Задержка этого выхода в миллисекундах',
     tip_caldelay:'Точная подстройка задержки выхода (мс)',
     tip_minus:'−1 мс', tip_plus:'+1 мс',
@@ -123,6 +124,7 @@ const I18N = {
     tip_calib:'Auto-align output delays using a microphone',
     tip_hold:'Lock the current sync and keep it online via microphone (BT drift)',
     tip_sync:'Sync calibration: drag until the speakers align (delay offset between them)',
+    tip_center:'Center — zero delay (in sync)',
     tip_delay:'Delay of this output in milliseconds',
     tip_caldelay:'Fine-tune the output delay (ms)',
     tip_minus:'−1 ms', tip_plus:'+1 ms',
@@ -561,7 +563,10 @@ function renderTransportDelays(){
     const wrap=el('div','td');
     const val=el('span','tdval','0'); val.style.minWidth='62px';
     const fader=el('div','fader'); fader.style.width='180px'; fader.title=t('tip_sync'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
+    const fobj={place:null};
     const apply=v=>{
+      // магнит-центр: у нулевой точки (±3% хода ≈ ±7 мс) прилипаем ровно к 0
+      if(Math.abs(v-0.5)<0.03){ v=0.5; if(fobj.place) fobj.place(0.5); }
       const pos=Math.round((v-0.5)*500);   // −250..+250 мс
       if(pos>0){ b.delay=pos; a.delay=0; val.textContent='▶ '+pos+' '+t('ms'); }
       else if(pos<0){ a.delay=-pos; b.delay=0; val.textContent='◀ '+(-pos)+' '+t('ms'); }
@@ -570,9 +575,14 @@ function renderTransportDelays(){
     };
     const initPos=(b.delay>0? b.delay : -(a.delay||0));
     const gv=()=>(initPos/500+0.5); gv.def=0.5;
-    bindFader(fader, gv, apply); apply(initPos/500+0.5);
+    fobj.place=bindFader(fader, gv, apply).place; apply(initPos/500+0.5);
+    // маленькая кнопка «в центр» — мгновенный сброс синхрона в 0
+    const ctr=el('button','btn ico','⊙'); ctr.title=t('tip_center');
+    ctr.style.width='22px'; ctr.style.height='22px'; ctr.style.fontSize='12px';
+    ctr.onclick=()=>{ if(fobj.place) fobj.place(0.5); apply(0.5); };
     wrap.appendChild(el('span','tdlbl',t('sync')));
     wrap.appendChild(fader);
+    wrap.appendChild(ctr);
     wrap.appendChild(val);
     box.appendChild(wrap);
   }

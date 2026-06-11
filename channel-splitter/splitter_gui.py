@@ -628,8 +628,16 @@ class Engine:
         if dsamp > 0:
             k = "dly_" + ck
             dly = st.get(k)
-            if dly is None or dly.shape[0] != dsamp:
+            if dly is None:
                 dly = np.zeros(dsamp, dtype=np.float32)
+            elif dly.shape[0] != dsamp:
+                # задержка изменилась на лету: переносим хвост старого буфера,
+                # НЕ обнуляем — иначе провал звука на всю длину задержки (заикание)
+                old = dly
+                dly = np.zeros(dsamp, dtype=np.float32)
+                n = min(old.shape[0], dsamp)
+                if n:
+                    dly[-n:] = old[-n:]
             ext = np.concatenate([dly, x])
             x = ext[:frames].astype(np.float32)
             st[k] = ext[frames:]
