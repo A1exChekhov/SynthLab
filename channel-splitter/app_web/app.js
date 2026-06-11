@@ -228,6 +228,11 @@ function setupAutoFit(){
 
 /* ---- helpers ---- */
 function el(tag, cls, html){ const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
+/* Квадратичная (перцептивная) кривая громкости: позиция ручки → усиление.
+   Слух логарифмичен — линейный фейдер «орёт» уже в начале хода; квадрат даёт
+   тонкую регулировку внизу. Макс. усиление 1.5 (как раньше). */
+function volGain(pos){ pos=Math.max(0,Math.min(1,pos)); return pos*pos*1.5; }
+function volPos(gain){ return Math.sqrt(Math.max(0,gain)/1.5); }
 function pct(v){ return Math.max(0,Math.min(100, v*100)); }
 function dbStr(peak){ if(peak<=0.0001) return '-inf'; const db=20*Math.log10(peak); return (db>0?'+':'')+db.toFixed(1); }
 
@@ -283,11 +288,11 @@ function renderOutputRow(o){
   const seg=el('div','seg');
   ROLES.forEach(([lbl,val])=>{ const b=el('button', o.role===val?'on':'', lbl); b.onclick=()=>{ API.set_output(o.id,'role',val).then(refresh);}; seg.appendChild(b); });
   row.appendChild(seg);
-  // volume fader
-  const led=el('div','led', String(Math.round(o.vol*100)));
+  // volume fader — квадратичная (перцептивная) кривая: внизу хода тонкая регулировка
+  const led=el('div','led', String(Math.round(volPos(o.vol)*100)));
   const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
-  const gv=()=>o.vol/1.5; gv.def=1/1.5;
-  bindFader(fader, gv, v=>{ o.vol=v*1.5; API.set_output(o.id,'vol',o.vol); led.textContent=Math.round(o.vol*100); });
+  const gv=()=>volPos(o.vol); gv.def=volPos(1.0);
+  bindFader(fader, gv, v=>{ o.vol=volGain(v); API.set_output(o.id,'vol',o.vol); led.textContent=Math.round(v*100); });
   row.appendChild(fader);
   // vu (live level)
   const vu=el('div','vu'); vu.dataset.outvu=o.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
@@ -360,11 +365,11 @@ function renderSourceRow(s){
   row.appendChild(dev);
   // balance seg (placeholder column)
   const segc=el('div'); row.appendChild(segc);
-  // volume
-  const led=el('div','led', String(Math.round(s.vol*100)));
+  // volume — квадратичная (перцептивная) кривая
+  const led=el('div','led', String(Math.round(volPos(s.vol)*100)));
   const fader=el('div','fader'); fader.innerHTML='<div class="trk"></div><div class="cap"></div>';
-  const gv=()=>s.vol/1.5; gv.def=1/1.5;
-  bindFader(fader, gv, v=>{ s.vol=v*1.5; API.set_source(s.id,'vol',s.vol); led.textContent=Math.round(s.vol*100); });
+  const gv=()=>volPos(s.vol); gv.def=volPos(1.0);
+  bindFader(fader, gv, v=>{ s.vol=volGain(v); API.set_source(s.id,'vol',s.vol); led.textContent=Math.round(v*100); });
   row.appendChild(fader);
   const vu=el('div','vu'); vu.dataset.srcvu=s.id; vu.style.setProperty('--v','0%'); row.appendChild(vu);
   row.appendChild(led);
@@ -593,10 +598,10 @@ function renderTransport(){
   $('transport-stat').textContent = run ? (t('stat_playing')+' · '+ST.outputs.length+' '+t('out_short')) : t('stat_stopped');
   const mf=$('master-fader');
   if(mf && !mf.dataset.bound){ mf.dataset.bound='1';
-    const gv=()=>ST.master/1.5; gv.def=1/1.5;
-    bindFader(mf, gv, v=>{ ST.master=v*1.5; $('master-led').textContent=Math.round(ST.master*100); API.set_master(ST.master); });
-  } else if(mf){ mf.querySelector('.cap').style.left=pct(ST.master/1.5)+'%'; }
-  $('master-led').textContent=Math.round(ST.master*100);
+    const gv=()=>volPos(ST.master); gv.def=volPos(1.0);
+    bindFader(mf, gv, v=>{ ST.master=volGain(v); $('master-led').textContent=Math.round(v*100); API.set_master(ST.master); });
+  } else if(mf){ mf.querySelector('.cap').style.left=pct(volPos(ST.master))+'%'; }
+  $('master-led').textContent=Math.round(volPos(ST.master)*100);
   renderTransportDelays();
   renderTransportPhase();
 }
