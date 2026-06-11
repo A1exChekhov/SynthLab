@@ -886,7 +886,7 @@ class Engine:
                 o.stream = None
                 try:
                     o.stream = sd.OutputStream(device=o.idx, channels=2, samplerate=SR, blocksize=BLOCK,
-                                               latency=0.35,   # сек: глубокий буфер — переживает BT-ретрансмиссии второй колонки
+                                               latency="high",   # глубокий буфер хост-API; числовая latency на MME даёт некратные буферы → «тики»
                                                dtype="float32", callback=self._out_cb(o, tones[i % len(tones)]))
                     o.stream.start()
                     streams.append(o.stream)
