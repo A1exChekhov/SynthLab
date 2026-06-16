@@ -338,6 +338,18 @@
     font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 5px rgba(232,176,75,.35)}
   .led,.val{font-variant-numeric:tabular-nums}
   .td .ico{width:24px;height:24px;font-size:12px}
+  /* ячейки памяти M1/M2/M3 */
+  .mem{display:flex;align-items:center;gap:5px;margin-right:26px}
+  .memk{min-width:36px;height:24px;font-size:11px;padding:0 8px;font-family:var(--cond);letter-spacing:.07em;font-weight:500}
+  .memk.on{color:#120a02;border-color:#000;font-weight:600;
+    background:linear-gradient(180deg,#f0c463,#c8902f);
+    box-shadow:0 0 9px rgba(232,176,75,.55),inset 0 1px 0 rgba(255,255,255,.35)}
+  .memk.saved{color:#04140a;background:linear-gradient(180deg,#5cf0a0,#27b06a);border-color:#000}
+  .memwrite{min-width:26px;padding:0 6px;font-size:12px;color:var(--sub)}
+  .memwrite.arm{color:#1a0606;border-color:#000;font-weight:700;
+    background:linear-gradient(180deg,#ff7a6a,#d8412f);box-shadow:0 0 10px rgba(238,90,74,.6)}
+  /* подсказка взведённого режима: ячейки слегка пульсируют-подсвечиваются */
+  .mem.arming .memk:not(.memwrite){border-color:#d8412f;box-shadow:0 0 6px rgba(238,90,74,.35)}
   .feature{margin-left:auto;display:flex;gap:8px}
   .feature .btn{min-width:120px;padding:0 12px}
   /* 1 колонка — узкая нижняя панель: ползунки и кнопки чуть уже, чтобы не вылазили */
@@ -642,7 +654,7 @@
       <div class="face mod u-full">
         <div class="phead">
           <div class="fp"><span class="marque">Errarium</span><span class="model">DSP-900</span><span class="fn">Effects Processor</span></div>
-          <div class="actions"><button class="btn eject" onclick="setVis('mod-fx',false)">✕</button></div></div>
+          <div class="actions"><div class="mem" id="transport-mem"></div><button class="btn eject" onclick="setVis('mod-fx',false)">✕</button></div></div>
         <div class="pbody fxbody">
           <div class="fxpads">
             <div class="pad" id="pad-space" data-i18n-title="tip_space"><div class="pad-t">Space ⏻</div><div class="pad-y">↑ Depth</div><div class="pad-x">Width →</div><div class="handle"><b></b></div></div>

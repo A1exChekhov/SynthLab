@@ -37,6 +37,8 @@ print("== AppCore bridge API ==")
 app = A.AppCore()
 app._start = lambda: True          # не трогаем реальные устройства в тесте
 app._reapply = lambda: None
+app.save_settings = lambda *a, **k: None   # гейт НЕ перезаписывает settings.json пользователя
+app._save = lambda *a, **k: None
 
 REQUIRED_STATE = {"out_devices", "in_devices", "lb_speakers", "mic_devices", "gpu",
                   "loopback", "running", "master", "outputs", "sources", "eq", "fx",
@@ -92,6 +94,23 @@ def t_master():
     app.set_master(0.5); assert abs(app.engine.master - 0.5) < 1e-6
 
 
+def t_mem():
+    assert len(app.mem) == 3, "expected 3 memory slots"
+    assert "mem" in app.get_state()
+    # каждая ячейка содержит полный набор fx-ключей (иначе сравнение/apply сломаются)
+    for m in app.mem:
+        assert "gains" in m and "eq_on" in m and "fx" in m
+        miss = set(A.AppCore.FX_KEYS) - set(m["fx"])
+        assert not miss, "mem slot missing fx keys: " + str(miss)
+    # записать текущее в M1, изменить, загрузить — настройки должны восстановиться
+    app.set_eq(0, 7.0); app.set_fx("bass_on", True); app.set_fx("bass", 5.0)
+    app.mem_save(0)
+    app.set_eq(0, -3.0); app.set_fx("bass", 0.0)
+    app.mem_apply(0)
+    assert abs(app.engine.eq_gains[0] - 7.0) < 1e-6, "mem did not restore EQ"
+    assert app.engine.bass_on and abs(app.engine.bass - 5.0) < 1e-6, "mem did not restore FX"
+
+
 def t_outputs():
     n0 = len(app.outputs)
     app.add_output(); assert len(app.outputs) == n0 + 1
@@ -136,8 +155,9 @@ def t_misc():
 
 
 for n, f in [("get_state", t_get_state), ("meters", t_meters), ("eq", t_eq), ("fx", t_fx),
-             ("master", t_master), ("outputs", t_outputs), ("sources", t_sources),
-             ("input/tuner", t_input_tuner), ("misc (ui/art/media/windows/hold)", t_misc)]:
+             ("master", t_master), ("mem M1/M2/M3", t_mem), ("outputs", t_outputs),
+             ("sources", t_sources), ("input/tuner", t_input_tuner),
+             ("misc (ui/art/media/windows/hold)", t_misc)]:
     check(n, f)
 
 

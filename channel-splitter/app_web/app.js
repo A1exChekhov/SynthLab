@@ -53,6 +53,8 @@ const I18N = {
     tip_hold:'Зафиксировать текущую синхронизацию и онлайн-удерживать её по микрофону (дрейф BT)',
     tip_sync:'Калибровка синхронизации: тяни, пока звук колонок не совпадёт (сдвиг задержки между ними)',
     tip_center:'В центр — нулевая задержка (синхрон)',
+    tip_mem:'Ячейка памяти: клик — загрузить пресет EQ+эффектов; удерживать — записать текущие настройки',
+    tip_mem_write:'Запись: нажми ✎, затем выбери ячейку M1/M2/M3 — туда сохранятся текущие настройки',
     tip_delay:'Задержка этого выхода в миллисекундах',
     tip_caldelay:'Точная подстройка задержки выхода (мс)',
     tip_minus:'−1 мс', tip_plus:'+1 мс',
@@ -125,6 +127,8 @@ const I18N = {
     tip_hold:'Lock the current sync and keep it online via microphone (BT drift)',
     tip_sync:'Sync calibration: drag until the speakers align (delay offset between them)',
     tip_center:'Center — zero delay (in sync)',
+    tip_mem:'Memory slot: click to recall the EQ+effects preset; hold to store current settings',
+    tip_mem_write:'Store: press ✎, then pick a slot M1/M2/M3 to save the current settings into it',
     tip_delay:'Delay of this output in milliseconds',
     tip_caldelay:'Fine-tune the output delay (ms)',
     tip_minus:'−1 ms', tip_plus:'+1 ms',
@@ -614,6 +618,74 @@ function renderTransport(){
   $('master-led').textContent=Math.round(volPos(ST.master)*100);
   renderTransportDelays();
   renderTransportPhase();
+  renderMem();
+}
+
+/* ── ячейки памяти M1/M2/M3: полный пресет EQ + эффектов ──
+   клик = загрузить, удержание (≥600 мс) = записать текущие настройки. */
+function memActiveIdx(){
+  if(!ST.mem||!ST.eq||!ST.fx) return -1;
+  const near=(a,b)=>Math.abs((+a||0)-(+b||0))<1e-4;
+  for(let i=0;i<ST.mem.length;i++){
+    const m=ST.mem[i]; if(!m) continue;
+    if(!!m.eq_on!==!!ST.eq.on) continue;
+    const g=m.gains||[]; if(g.length!==ST.eq.gains.length) continue;
+    let ok=true;
+    for(let j=0;j<g.length;j++){ if(!near(g[j],ST.eq.gains[j])){ok=false;break;} }
+    if(!ok) continue;
+    const mf=m.fx||{};
+    for(const k in mf){ const a=mf[k],b=ST.fx[k];
+      if(typeof a==='boolean'){ if(!!a!==!!b){ok=false;break;} }
+      else if(!near(a,b)){ok=false;break;} }
+    if(ok) return i;
+  }
+  return -1;
+}
+let memArm=false;   // режим записи: следующий клик по M1/M2/M3 сохраняет, а не загружает
+function setMemArm(on){
+  memArm=on;
+  const w=document.getElementById('mem-write'); if(w) w.classList.toggle('arm',on);
+  const box=$('transport-mem'); if(box) box.classList.toggle('arming',on);
+}
+function renderMem(){
+  const box=$('transport-mem'); if(!box) return;
+  if(!box.dataset.built){ box.dataset.built='1';
+    // кнопка записи ✎ — взводит режим «сохранить в ячейку»
+    const w=el('button','btn memk memwrite','✎'); w.id='mem-write'; w.title=t('tip_mem_write');
+    w.onclick=()=>setMemArm(!memArm);
+    box.appendChild(w);
+    for(let i=0;i<3;i++){
+      const b=el('button','btn memk'); b.dataset.slot=i; b.title=t('tip_mem');
+      const store=()=>{ API.mem_save(i).then(()=>{ b.classList.add('saved'); setMemArm(false); setTimeout(refresh,750); }); };
+      let timer=null, held=false;
+      const cancel=()=>{ if(timer){clearTimeout(timer);timer=null;} };
+      b.addEventListener('pointerdown',()=>{ held=false;
+        timer=setTimeout(()=>{ held=true; cancel(); store(); },600);   // длинное нажатие = тоже запись
+      });
+      b.addEventListener('pointerup',()=>{ cancel(); if(held) return;
+        if(memArm) store(); else API.mem_apply(i).then(refresh);
+      });
+      b.addEventListener('pointerleave',cancel);
+      box.appendChild(b);
+    }
+  }
+  const act=memActiveIdx();
+  Array.from(box.querySelectorAll('.memk')).forEach(b=>{
+    if(b.id==='mem-write') return;
+    const i=+b.dataset.slot, m=ST.mem&&ST.mem[i];
+    b.textContent=(m&&m.name)||('M'+(i+1));
+    b.classList.remove('saved');
+    b.classList.toggle('on', i===act);
+  });
+}
+// Подсветка активной ячейки в реальном времени (ползунки меняют ST, но не зовут refresh).
+function updateMemHighlight(){
+  const box=$('transport-mem'); if(!box||!box.dataset.built) return;
+  const act=memActiveIdx();
+  box.querySelectorAll('.memk').forEach(b=>{
+    if(b.id==='mem-write'||b.classList.contains('saved')) return;
+    b.classList.toggle('on', (+b.dataset.slot)===act);
+  });
 }
 
 let vizGpu=false;   // окно анализатора показывает цветомузыку (WebGL) вместо столбиков
@@ -661,6 +733,7 @@ function meterLoop(){
       const vu=document.querySelector('[data-srcvu="'+id+'"]'); if(vu) vu.style.setProperty('--v', pct(Math.min(1,pk*1.4))+'%'); }
     if(m.spectrum){ for(let i=0;i<12;i++){ const mm=document.querySelector('[data-eqm="'+i+'"]'); if(mm){ const v=Math.min(1, (m.spectrum[i]||0)); mm.style.setProperty('--v', pct(v)+'%'); } } }
     ST = ST||{};
+    updateMemHighlight();   // ячейка M гаснет, как только настройки разошлись с пресетом
     // реальный формат источника (снимается движком) — перерисовываем параметры при изменении
     if(m.fmt){ const pf=ST.fmt||{};
       if(pf.rate!==m.fmt.rate||pf.ch!==m.fmt.ch||pf.codec!==m.fmt.codec||pf.kbps!==m.fmt.kbps){ ST.fmt=m.fmt; renderPlayerParams(); } }

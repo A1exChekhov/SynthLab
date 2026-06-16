@@ -95,6 +95,9 @@ class AppCore:
         self._main_hidden = False
         self._mini_hidden = False
         self.ui = {"theme": "dark", "cols": 2, "lang": self._install_lang()}
+        # ── ячейки памяти M1/M2/M3: полный снимок EQ + всех эффектов ──
+        # Готовые из коробки (потом донастроим), но их можно перезаписывать.
+        self.mem = self._default_mem()
         self._last_save = 0.0
         self._hold_on = False
         self._hold_thread = None
@@ -158,6 +161,12 @@ class AppCore:
             e.viz_cfg.update(d["viz"])
         if isinstance(d.get("ui"), dict):
             self.ui.update(d["ui"])
+        m = d.get("mem")
+        if isinstance(m, list) and len(m) == len(self.mem):
+            # переносим сохранённые ячейки поверх дефолтных (ключи fx гарантированы базой)
+            for i, snap in enumerate(m):
+                if isinstance(snap, dict):
+                    self.mem[i] = snap
         self.outputs = []
         for od in d.get("outputs", []):
             spk = core.OutputSpk(0, "")
@@ -189,6 +198,7 @@ class AppCore:
             "fx": {k: getattr(e, k) for k in self.FX_KEYS},
             "viz": dict(e.viz_cfg),
             "ui": dict(self.ui),
+            "mem": self.mem,
             "outputs": [{"device": getattr(o, "label", ""), "role": self._role(o),
                          "vol": o.vol, "mute": o.mute, "sub": o.is_sub, "xover": o.xover,
                          "delay": o.delay_ms, "inv": o.inv} for o in self.outputs],
@@ -442,6 +452,66 @@ class AppCore:
 
     def set_master(self, v):
         self.engine.master = float(v); self._save()
+
+    # ── ячейки памяти (M1/M2/M3): полный пресет EQ + эффектов ──
+    def _default_mem(self):
+        """Готовые пресеты из коробки. Базу берём из текущих дефолтов движка,
+        чтобы набор ключей всегда совпадал, затем точечно правим под характер."""
+        e = self.engine
+        base_fx = {k: getattr(e, k) for k in self.FX_KEYS}
+        flat = [0.0] * len(e.eq_gains)
+
+        def slot(name, eq_on, gains, **fx):
+            f = dict(base_fx); f.update(fx)
+            return {"name": name, "eq_on": eq_on, "gains": gains, "fx": f}
+
+        # M1 — чистый/ровный (референс). M2 — тёплый/басовый. M3 — широкий/объём.
+        return [
+            slot("M1", False, list(flat)),
+            slot("M2", True, [5.0, 4.0, 2.5, 1.0, 0.0, -0.5, -0.5, 0.0, 1.0, 2.0, 2.5, 3.0],
+                 bass_on=True, bass=6.0, tone_on=True, tilt=-0.18,
+                 monobass_on=True, monobass_hz=110.0),
+            slot("M3", False, list(flat),
+                 spatial_on=True, spatial=0.5, threeD_on=True, threeD=0.35,
+                 reverb_on=True, reverb_size=0.4, reverb_mix=0.16),
+        ]
+
+    def _mem_snapshot(self):
+        e = self.engine
+        return {"eq_on": bool(e.eq_on), "gains": list(e.eq_gains),
+                "fx": {k: getattr(e, k) for k in self.FX_KEYS}}
+
+    def _mem_apply_snapshot(self, snap):
+        e = self.engine
+        g = snap.get("gains")
+        if g and len(g) == len(e.eq_gains):
+            e.eq_gains = [float(x) for x in g]
+        if "eq_on" in snap:
+            e.eq_on = bool(snap["eq_on"])
+        fx = snap.get("fx", {}) or {}
+        for k in self.FX_KEYS:
+            if k in fx:
+                v = fx[k]
+                setattr(e, k, bool(v) if isinstance(v, bool) else float(v))
+        e.build_eq(); e.build_monobass(); e.set_distance(e.distance)
+
+    def mem_apply(self, slot):
+        """Загрузить ячейку M1/M2/M3 в активные настройки."""
+        slot = int(slot)
+        if 0 <= slot < len(self.mem):
+            self._mem_apply_snapshot(self.mem[slot])
+            self.save_settings()
+        return True
+
+    def mem_save(self, slot):
+        """Записать текущие EQ+эффекты в ячейку M1/M2/M3 (перезапись)."""
+        slot = int(slot)
+        if 0 <= slot < len(self.mem):
+            snap = self._mem_snapshot()
+            snap["name"] = self.mem[slot].get("name", "M%d" % (slot + 1))
+            self.mem[slot] = snap
+            self.save_settings()
+        return True
 
     def resize_window(self, w, h):
         """Подогнать окно ровно под содержимое (вызывается из UI после рендера).
@@ -1064,6 +1134,7 @@ class AppCore:
                    "comp_on": e.comp_on, "comp_thresh": e.comp_thresh},
             "viz": dict(e.viz_cfg),
             "ui": dict(self.ui),
+            "mem": self.mem,   # полные снимки — UI сам подсветит активную ячейку
             "hold": self._hold_on,
             "fmt": {"rate": 48000, "ch": 2, "codec": "PCM", "kbps": 0},
             "np": {"codec": "PCM", "rate": "48.0k", "bits": "32f", "ch": "2.0", "kbps": "—"},
